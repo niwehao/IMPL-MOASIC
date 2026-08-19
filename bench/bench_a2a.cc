@@ -157,7 +157,7 @@ int main(int argc, char** argv) {
     else if (a == "--demand-file") demand_file = nx();
   }
   // --verify 控制**端到端字节校验**(it==warmup 那次,对照 pat() 逐字节比对,
-  // 这就是 bit-exact 判据)。逐 slice CRC 已随 GDR 重构删除(payload 不过 host)。
+  // 这就是 bit-exact 判据)。
 
   const int n = cfg.nranks, me = cfg.rank;
   auto D = demand_file.empty() ? build_demand(n, msg, alpha, seed, mode, 4096)

@@ -119,14 +119,18 @@ static mosaicResult_t wait_coll(Comm* c) {
     int s = c->coll_state.load();
     if (s == 0) return mosaicSuccess;             // 无在途
     if (s == 2) break;
-    if (s == 3) {                                 // E4005:demand hint 失配
-      // 错误路径也要给零流档的常驻核发停机信号,否则核悬死、下次 cudaFree 卡住
+    if (s == 3) {                                 // 协议错误(E4005/E1027 等)
+      // 错误路径也要停核 + 开门,否则消费者核/门核悬死、下次 cudaFree 卡住
       kdesc_release_gate(c);
+      if (c->done_flag_host)
+        __atomic_store_n((uint32_t*)c->done_flag_host, (uint32_t)c->coll_id, __ATOMIC_RELEASE);
       c->coll_state.store(0);
       return mosaicErrConfig;
     }
     if (now_ns() > t_deadline) {
-      kdesc_release_gate(c);   // 同上:超时也要停核
+      kdesc_release_gate(c);   // 同上:超时也要停核 + 开门
+      if (c->done_flag_host)
+        __atomic_store_n((uint32_t*)c->done_flag_host, (uint32_t)c->coll_id, __ATOMIC_RELEASE);
       c->err = "E2002 collective 超时(120s)";
       MLOG_ERR("%s:recv %llu/%llu send %llu/%llu", c->err.c_str(),
                (unsigned long long)c->dst.total_recv, (unsigned long long)c->total_recv_expect,
@@ -142,10 +146,10 @@ static mosaicResult_t wait_coll(Comm* c) {
 
 namespace mosaic {
 bool zerostream_arm(Comm* c);
+bool gate_arm(Comm* c, void* stream, uint32_t want);
 
-// S3(a):同步档启用**零流执行**(host-API 发送 + 设备侧镜像核发现 + 消费者核
-// 交付)。默认关 = 旧行为。(b) 异步提交语义已于 2026-08-19 删除
-// (坑 #41-#48 一整类;File/debug-819/local-0819-transport-cleanup-plan.md)。
+// MOSAIC_ZEROSTREAM:无流调用方(bench)也走 kdesc 零流数据面(nvshmem 面的
+// 待收敛项,Raven Gate 裁决 —— File/debug-819/local-0819-transport-cleanup-plan.md §2)。
 static bool zerostream_on() {
   static const int v = [] {
     const char* e = getenv("MOSAIC_ZEROSTREAM");
@@ -204,7 +208,14 @@ static mosaicResult_t submit_coll(Comm* c,
         if (c->use_nvsh) nvsh_wait_input(c, c->input_ev);
       }
     }
-    if (zerostream_on() && c->cfg.use_gpu && c->kdesc_ctr) {
+    c->gated = false;
+    // ── 完成契约(单一路径,按调用方输入分档):
+    //   caller_stream != 0(torch 等流式调用方)⇒ **流序完成**:门核排在 caller
+    //     流上等 done_flag,本调用提交后即返回;下一次提交先隐式收尾上一笔
+    //     (一代在飞)。窗口内引擎零 CUDA 调用(kdesc 消费者核搬运)。
+    //   caller_stream == 0(bench 等无流调用方)⇒ host 阻塞等收尾。
+    const bool stream_ordered = caller_stream != 0 && c->cfg.use_gpu && c->zs_cap;
+    if (stream_ordered || (zerostream_on() && c->cfg.use_gpu && c->kdesc_ctr)) {
       // ── S3(a):**零流执行进同步档**(MOSAIC_ZEROSTREAM=1,默认关;
       // 待收敛项,Raven Gate 裁决 —— 见清理计划 §2)。
       // 动机:默认档收一片要走:镜像 D2H → 主机轮询发现 → push 描述符 →
@@ -214,12 +225,17 @@ static mosaicResult_t submit_coll(Comm* c,
       // 没有 caller 流(bench_a2a:数据本就在设备上、无待决生产者)⇒ 输入
       // 天然就绪,不必也无法在流上打就绪标志。
       c->input_ready = !caller_stream;
+      if (!caller_stream && c->kdesc_ctr)   // 无流调用方:输入天然就绪,直接开核内输入门
+        __atomic_store_n((uint64_t*)(c->kdesc_ctr + 160), 1ull, __ATOMIC_RELEASE);
       const bool mk = caller_stream
                           ? async_mark_input(c, (void*)(uintptr_t)caller_stream)
                           : true;
       if (mk && zerostream_arm(c)) {
-        c->kdesc_active = true;      // ⇒ host-API 发送 + 镜像核发现 + 消费者核交付
-        MLOG_DBG("S3(a) 零流执行已挂载(同步档,coll=%d)", c->coll_id);
+        c->kdesc_active = true;      // ⇒ 消费者核交付/组装(nvsh 面另有镜像核)
+        if (stream_ordered && gate_arm(c, (void*)(uintptr_t)caller_stream,
+                                       (uint32_t)c->coll_id))
+          c->gated = true;           // 门已排上 caller 流,Ex 提交后即返回
+        MLOG_DBG("kdesc 挂载(coll=%d gated=%d)", c->coll_id, (int)c->gated);
       }
     }
   }
@@ -234,9 +250,12 @@ extern "C" mosaicResult_t mosaicAlltoallvEx(mosaicComm_t comm,
                                             uint64_t caller_stream, int demand_mode, uint64_t row_bytes) {
   Comm* c = (Comm*)comm;
   if (!c) return mosaicErrConfig;
-  mosaicResult_t rc = submit_coll(c, sendbuf, scounts, sdispls, recvbuf, rcounts, rdispls,
-                                  caller_stream, demand_mode, row_bytes);
+  mosaicResult_t rc = wait_coll(c);   // 一代在飞:先收尾上一笔(流序档在此兑现同步)
   if (rc != mosaicSuccess) return rc;
+  rc = submit_coll(c, sendbuf, scounts, sdispls, recvbuf, rcounts, rdispls,
+                   caller_stream, demand_mode, row_bytes);
+  if (rc != mosaicSuccess) return rc;
+  if (c->gated) return mosaicSuccess; // 流序完成:门核兜住数据就绪,CPU 即刻返回
   return wait_coll(c);
 }
 
@@ -275,6 +294,7 @@ extern "C" mosaicResult_t mosaicAllgather(mosaicComm_t comm, const void* sendbuf
 extern "C" mosaicResult_t mosaicBarrier(mosaicComm_t comm) {
   Comm* c = (Comm*)comm;
   if (!c) return mosaicErrConfig;
+  wait_coll(c);                       // 集合边界:先收尾在飞的 collective
   int ep = c->barrier_epoch.fetch_add(1);
   MLOG_DBG("barrier %d 进入", ep);
   ctrl_bcast(c, CT_BARRIER, (uint16_t)ep, nullptr, 0);
@@ -314,6 +334,7 @@ extern "C" mosaicResult_t mosaicGetStats(mosaicComm_t comm, mosaicStats_t* out) 
 extern "C" mosaicResult_t mosaicStatsSync(mosaicComm_t comm, mosaicStats_t* out) {
   Comm* c = (Comm*)comm;
   if (!c || !out) return mosaicErrConfig;
+  wait_coll(c);                       // 读的是收尾后的 completion
   // makespan = 各 rank completion 的最大值。用控制面 allgather 归约(不计入计时)。
   double mine = c->st.completion_us;
   int ep = c->stats_epoch.fetch_add(1), i = ep & 3;

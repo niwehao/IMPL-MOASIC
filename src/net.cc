@@ -1,15 +1,14 @@
-/* net.cc —— L0 传输层。平台差异**只**存在于本文件(Imp_Plan/01 §3)。
+/* net.cc —— L0:机内 IPC 环(控制信息走共享内存,payload 走 CUDA IPC 设备环)
+ * + TCP(bootstrap 与控制面回退)。
  *
- *  NV 管(机内)= POSIX 共享内存 SPSC 环 + cudaMemcpyAsync(D2H/H2D)
- *                plan 明确要求"用共享内存把本机划分不同区域模拟 NVLink"。
- *  vNIC(跨机)= 每有序 pair 一条 TCP(直连 100GbE 上限速到 nic_gbps,
- *                所以 TCP 与 RoCE 在本模拟里等价 —— 见 log.md「为什么 TCP 够用」)。
- *  控制面    = 全 mesh TCP,承载通道 A(遥测)与通道 B(策略广播)。
+ *  机内 = POSIX 共享内存 SPSC 环承载 [头|序号],payload 在设备内存(IPC 映射)。
+ *  跨机数据面在 verbs.cc(GDR)/ nvshmem_pipe.cc(Raven)。
+ *  控制面 = 跨机恒走 verbs SEND(verbs.cc);TCP 承担 bootstrap(QP/uid 交换)、
+ *  同机 peer 控制报文、以及 verbs 不可用时的回退。
  *
  * 通道 B 走可靠传输的理由(重要):论文里通道 B 是"只存最新一份"的账本视图输入,
  * 但在真机上它**同时是执行指令**(src 靠它才知道这一波发哪些字节)。丢一条 =
- * 丢数据,所以必须可靠。账本视图仍按"最新一份"语义使用,两者不冲突。
- */
+ * 丢数据,所以必须可靠(RC QP 与 TCP 等强)。 */
 #include "internal.h"
 
 #include <arpa/inet.h>
@@ -62,7 +61,6 @@ struct ShmRing {
 
 ShmRing* shm_ring_create(const std::string& name, int nslots, int slot_bytes, bool creator) {
   // payload 恒在设备内存(CUDA IPC),共享内存只承载控制信息(头 + 序号)。
-  // host-SHM payload 的模拟遗留路径已删(2026-08-19)。
   size_t stride = sizeof(ShmSlotHdr);
   size_t bytes = sizeof(ShmRingHdr) + (size_t)nslots * stride;
   int fd = -1;
@@ -187,9 +185,9 @@ void shm_ring_region(ShmRing* r, void** base, size_t* bytes) {
 }
 
 // ─────────────────────────────────────────────────────────── TCP 连接
-// 2026-08-19 清理:TCP **数据面**已删除(slice 只走 verbs/nvshmem;建链失败 =
-// 硬错 fail-fast,不再静默降速)。TCP 只承担 ①bootstrap(QP/uid 交换,经
-// dconn 的阻塞收发)②控制面(同机 peer + verbs ctrl 不可用时的回退)。
+// TCP 只承担 ①bootstrap(QP/uid 交换,经 dconn 的阻塞收发)②控制面
+// (同机 peer + verbs ctrl 不可用时的回退)。slice 数据只走 verbs/nvshmem,
+// 数据面建链失败 = 硬错 fail-fast,不静默降速。
 struct Conn {
   int fd = -1;
   int peer = -1;

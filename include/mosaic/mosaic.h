@@ -67,13 +67,9 @@ typedef struct {
   int spineagg;             /* 1 = fabric 账聚合档(纯 ECMP fabric 的兜底,
                                emu 与 Raven 都是无 spine 选择的 fabric → 恒 1;
                                旋钮保留是为与模拟器 flag 对表) */
-  /* (原 verify 逐 slice CRC 已删,2026-08-19:payload 全程在设备内存,
-     CPU 无法读;正确性判据 = 端到端 bit-exact 校验 + 训练 loss 门。) */
   int use_gpu;              /* 默认自动探测(有 CUDA 设备即 1);0 = 纯 host 内存跑
                                协议(离线决策回放用;有机内 peer 的形态不支持)。
-                               2026-08-19 起无 env 镜像,只能程序内设。 */
-  /* (原 nv_ipc 已删,2026-08-19:机内 payload 恒走 CUDA IPC 设备内存;
-     POSIX 共享内存 payload 属模拟遗留路径。) */
+                               无 env 镜像,只能程序内设。 */
 } mosaicConfig_t;
 
 /* 用默认值 + 环境变量填充 cfg;rank/nranks 也可由 MOSAIC_RANK/MOSAIC_NRANKS 给。 */
@@ -106,10 +102,6 @@ mosaicResult_t mosaicAlltoallvEx(mosaicComm_t comm,
                                  const void* sendbuf, const size_t scounts[], const size_t sdispls[],
                                  void* recvbuf, const size_t rcounts[], const size_t rdispls[],
                                  uint64_t caller_stream, int demand_mode, uint64_t row_bytes);
-
-/* (原 mosaicAlltoallvBegin/End 异步提交 API 已删,2026-08-19:每轮 A2A
- *  结束必有同步是硬不变量,异步提交语义连同实现一起移除 ——
- *  见 File/debug-819/local-0819-transport-cleanup-plan.md。) */
 
 /* 小数据 allgather(host 内存,走控制面)。MoE 集成需要先交换各 rank 的
    token 计数才能定 buffer 大小 —— 这类元数据交换不该占数据管。

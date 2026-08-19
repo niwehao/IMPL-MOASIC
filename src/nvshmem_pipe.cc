@@ -44,7 +44,6 @@ static int nvsh_slots() {
 }
 
 // **零流数据面**(host-API 发送 + 镜像核 + 消费者核)是否启用。
-// ((b) 异步提交语义已删,2026-08-19;这里只剩 MOSAIC_ZEROSTREAM 一个入口。)
 // 下面几处纪律(staging 槽加深、**不注册 torch 缓冲**)绑的是这条数据面。
 static bool s3_zerostream_mode() {
   static const bool v = [] {
@@ -452,7 +451,7 @@ int nvsh_post_slice(Comm* c, int peer, const SliceHdr& h, const void* gpu_src,
     int hs = v->hhdr_free.back(); v->hhdr_free.pop_back();
     uint8_t* hslot = v->hhdr_pool + (size_t)hs * HDR_STRIDE;
     memcpy(hslot, &h, sizeof(SliceHdr));
-    {   // 槽使用代数写进 crc 位(镜像核 tag 校验;slice CRC 已删,crc 位专职 tag)
+    {   // 槽使用代数写进 crc 位(镜像核 tag 校验;crc 位专职 tag)
       uint32_t tag = (uint32_t)(seq / (uint64_t)v->nslots + 1);
       memcpy(hslot + 30, &tag, 4);
     }

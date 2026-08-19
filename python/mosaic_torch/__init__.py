@@ -19,10 +19,9 @@
 流语义(File/log_raven.md §6 D11):提交时在 torch 当前流上录一个"输入就绪"
 事件交给引擎,引擎的拷贝流 WaitEvent 它 —— CPU 协议(demand 交换/注水/通道 B)
 与调用方流上的尾部计算重叠,无 host 同步。
-调用整体是阻塞语义(返回 = 输出已就绪),MoE dispatcher 语义等价。
-**每轮 A2A 结束必有同步是硬不变量**:异步提交语义(旧 MOSAIC_TORCH_ASYNC)
-已删除 —— 多代同飞在协议上无法区分不同轮的 token(坑 #41-#48 一整类),
-判死刑见 2026-08-19 清理(File/debug-819/local-0819-transport-cleanup-plan.md)。
+完成语义 = **流序完成 + 一代在飞**:调用返回时数据就绪由 caller 流上的
+门核保证(caller 流后续算子自动等数据),CPU 不阻塞;下一次调用内部先收尾
+上一笔 —— 恒只有一代在飞,每轮 A2A 结束必有同步是硬不变量。
 """
 import os
 
@@ -99,6 +98,9 @@ def _splits_bytes(t, splits, world):
 # 转置(combine / autograd backward)时,引擎从上次全局矩阵恒等推导,免 allgather。
 _HINT = int(os.environ.get("MOSAIC_DEMAND_HINT", "1") or "1")
 _prev_call = {"sc": None, "rc": None, "rb": 0}
+# 流序完成(一代在飞):调用返回时数据就绪由 caller 流上的门核保证,CPU 不等;
+# 两侧张量引用持到下一次调用(下一次调用内部先收尾上一笔 ⇒ 届时引用可放)。
+_inflight = []
 
 
 def _row_bytes(t):
@@ -157,6 +159,8 @@ def all_to_all_single(output, input, output_split_sizes=None,
             stream = 1
     c.alltoallv(input.data_ptr(), sc, sd, output.data_ptr(), rc, rd,
                 stream=stream, demand_mode=mode, row_bytes=rb)
+    # 调用内部已收尾上一笔 ⇒ 旧引用此刻可放,换持本笔的
+    _inflight[:] = [(input, output)]
     return None
 
 

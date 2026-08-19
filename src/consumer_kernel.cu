@@ -102,10 +102,20 @@ extern "C" __global__ void mosaic_consume(u64 ring_a, u64 ctr_a, u64 prog_a,
   volatile u64* head = (volatile u64*)(ctr_a);
   volatile u64* done = (volatile u64*)(ctr_a + 64);
   volatile u64* stop = (volatile u64*)(ctr_a + 128);
+  volatile u64* inflag = (volatile u64*)(ctr_a + 160);
   volatile u64* gen = (volatile u64*)(ctr_a + 192);
   volatile u64* prog = (volatile u64*)prog_a;
   __shared__ u64 s_desc[3];
   __shared__ int s_state;
+  // 输入门(设备侧):等 caller 流上的 flagset 核把 inflag 置 1 = 生产者
+  // kernel 已写完 sendbuf、且 caller 流先前工作(含 caching allocator 复用块
+  // 上的旧 kernel)全部完成。host 侧因此可以**立即**推描述符(消灭 host 观察
+  // input 事件的往返延迟);本核不放行任何拷贝,读 sendbuf / 写 recvbuf 的
+  // 顺序都由这道门保证。stop/gen 变化时照常退出(teardown 安全)。
+  if (threadIdx.x == 0) {
+    while (*inflag == 0 && *stop == ~0ull && *gen == my_gen) __nanosleep(2000);
+  }
+  __syncthreads();
   // done 刷新:min(prog) 只可能增长,但两个 block 并发"读-算-写"会让慢者的
   // 过期 min 覆盖新值;若之后全员进入等待就没人再写,done 永久卡低(实测
   // push=68 done=67 悬死)。因此:①只在 m 更大时写;②等待循环里持续刷新,
@@ -118,18 +128,17 @@ extern "C" __global__ void mosaic_consume(u64 ring_a, u64 ctr_a, u64 prog_a,
   u64 i = start;
   for (;;) {
     if (threadIdx.x == 0) {
-      // **PCIe 纪律(坑 #38)**:等待循环里的每一次 mapped-host 读写都是
-      // 一笔 PCIe 事务。旧版 4 个 block × 每 500ns 读 head/stop/gen + 刷 done,
-      // 把 BAR 通道打满 —— 同一条 PCIe 上的 s_poll D2H 镜像与 NVSHMEM proxy
-      // 门铃被饿死(现场:stx/evpoll 双 600、镜像轮转冻结、put 不发出)。
-      // 现在:节拍 4µs、done 只由 block0 每 16 轮兜底刷一次。
+      // **PCIe 纪律**:等待循环里的每一次 mapped-host 读写都是一笔 PCIe 事务。
+      // 节拍取 1µs(500ns × 密集读会把 BAR 打满,饿死同一条 PCIe 上的 NIC
+      // 门铃/镜像;4µs 则给每描述符交接叠 ~4µs 量化延迟)。
+      // done 只由 block0 每 16 轮兜底刷一次。
       for (u32 spin = 0;; spin++) {
         if (*head > i) { s_state = 0; break; }
         u64 sp = *stop;
         if (sp != ~0ull && i >= sp) { s_state = 1; break; }
         if (*gen != my_gen) { s_state = 1; break; }   // 换代:立即让位(坑 #36)
         if (blockIdx.x == 0 && (spin & 15) == 0) refresh_done(start);
-        __nanosleep(4000);
+        __nanosleep(1000);
       }
       if (s_state == 0) {
         __threadfence_system();               // head 之后再读描述符(acquire)

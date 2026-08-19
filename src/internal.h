@@ -1,12 +1,13 @@
 /* internal.h —— libmosaic 内部契约:所有跨文件共享的类型都在这里。
  *
- * 分层(Imp_Plan/01):
- *   L0 transport  = ShmRing(模拟 NVLink)/ TcpPipe(模拟 vNIC)/ CtrlMesh(通道 A/B)
- *   L1 engine     = 事件循环(slice 状态机 + CUDA 异步拷贝 + token bucket)
+ * 分层:
+ *   L0 transport  = 机内 CUDA IPC 环(net.cc)/ verbs GDR(verbs.cc)/
+ *                   NVSHMEM(nvshmem_pipe.cc)/ TCP(bootstrap + 控制面回退)
+ *   L1 engine     = 事件循环(slice 状态机 + kdesc 消费者核 / CUDA 异步拷贝)
  *   L2 core       = Topo/Corridor + Ledger + DstCtrl 波引擎(纯 CPU,不碰 CUDA)
  *   L3 api        = mosaic.h
  *
- * 线程模型:app 线程(调用者)+ 1 个 event 线程。协议决策、CUDA 提交、socket
+ * 线程模型:app 线程(调用者)+ 1 个 event 线程。协议决策、CUDA 提交、网络
  * 收发全在 event 线程里做 —— 单线程事件循环 = 无锁 = 决策可复现。
  */
 #ifndef MOSAIC_INTERNAL_H
@@ -31,8 +32,8 @@ static constexpr int MAX_RANKS = 64;
 static constexpr int NCORR = 6;          // DIRECT, RX, TX, SPREAD lane0..2
 static constexpr int MAX_HOPS = 3;       // ≤3 跳(报告 §4.1 的候选空间上界)
 static constexpr uint32_t SLICE_MAGIC = 0x4D534C43u;  // 'MSLC'
-// staging 槽布局:[HDR_STRIDE 字节的 SliceHdr 区 | payload]。统一布局让
-// RDMA SEND 可以一次 WR 发「头+payload」,TCP 路径只用 payload 区(头走 writev)。
+// 线格式:[HDR_STRIDE 字节的 SliceHdr 区 | payload]。RDMA SEND 用双 SGE
+// 一次 WR 发「头+payload」;NVSHMEM 环槽同一布局。
 static constexpr int HDR_STRIDE = 64;
 
 // 资源账本的种类。RES_SPINE 只对跨 rail 的跨机 hop 计费。
@@ -50,7 +51,7 @@ struct SliceHdr {
   uint16_t wave;
   uint8_t corr, hop, nhops, flags;
   uint8_t path[4];        // path[0]=src … path[nhops]=dst
-  uint32_t crc;           // verify 模式下的 payload CRC32,否则 0
+  uint32_t crc;           // 槽使用代数 tag(nvsh 镜像核按偏移 30 硬编码校验)
   // **代际号 = coll_id 低 16 位**(坑 #48 的根治)。同步档里"当前 collective"
   // 天然唯一,所以老协议没带它;异步档一旦允许多代同时在网上,接收侧就再也
   // 分不清"上一代的迟到片"与"下一代的早到片" —— 而终跳的落点
@@ -70,7 +71,7 @@ static_assert(offsetof(SliceHdr, crc) == 30,
               "crc 偏移必须是 30:consumer_kernel.cu 的镜像核按此硬编码取代数 tag");
 
 // 控制面报文类型。通道 A = 遥测(有界陈旧),通道 B = 策略广播(必须可靠,
-// 因为它同时是**执行指令**——见 docs/design.md 的"通道 B 为什么走 TCP")。
+// 因为它同时是**执行指令** —— 跨机走 verbs RC SEND,可靠性与 TCP 等强)。
 enum CtrlType : uint8_t {
   CT_HELLO = 1, CT_DEMAND = 2, CT_BARRIER = 3, CT_POLICY = 4,
   CT_TELEM = 5, CT_STATS = 6, CT_FIN = 7, CT_AG = 8,
@@ -238,9 +239,8 @@ struct Detector {
 };
 
 // ─────────────────────────────────────────────────────────── L1:资源计数器
-// 原 token bucket 限速已删(2026-08-19,真机为准:额定值只喂决策层的代价模型,
-// 数据面永不限速;模拟档的限速/降速注入随虚拟化一起废弃)。
-// 保留 passed 计数 —— 它是该资源的 discharge,喂通道 A 遥测与账本(决策层语义不变)。
+// 真机为准:额定值(nv/nic/spine)只喂决策层的代价模型,数据面永不限速。
+// passed 计数 = 该资源的 discharge,喂通道 A 遥测与账本(决策层语义)。
 struct Bucket {
   uint64_t passed = 0;       // 累计通过字节(= 该资源的 discharge 计数)
   void init() { passed = 0; }
@@ -390,8 +390,20 @@ struct Comm {
   // 按 g_ev_phase 编号记单次最大耗时;demand 块入口快照+清零,PHASE 行报 argmax
   uint64_t ev_seg_max[16] = {0};
   uint64_t ev_seg_snap[16] = {0};
-  // 零流数据面能力(MOSAIC_ZEROSTREAM;(b) 异步提交语义已删,2026-08-19)
-  bool zs_cap = false;              // 消费者核资源就绪才可挂零流
+  // kdesc 零流数据面能力(消费者核资源就绪才可用)
+  bool zs_cap = false;
+  // 流序完成(2026-08-19,一代在飞):caller 提供流时,完成 = caller 流上的
+  // 有界自旋门核(等 done_flag ≥ coll_id),CPU 提交后即返回;下一次提交先
+  // 隐式收尾上一笔(恒只有一代在飞,坑 #41-#48 的多代问题结构上不存在)。
+  // 门未决窗口内引擎**零 CUDA 调用**(Result/local-0819-gate-probe 实测:
+  // 并发 cudaFree 会楔死其他线程的流调用 —— 引擎只写 pinned/发 verbs WR,
+  // 搬运全在消费者核)。
+  bool gated = false;               // 本 collective 走流序完成
+  void* done_flag_host = nullptr;   // uint32_t*(pinned mapped;引擎完成时写 coll_id)
+  uint64_t done_flag_dev = 0;
+  void* gate_mod = nullptr;         // 自旋门核 CUmodule(PTX JIT)
+  void* gate_fn = nullptr;
+  bool self_copy_pending = false;   // 坑 #51:自拷贝等 input_ready 后交消费者核
   // S3 方案 N:GPU 消费者内核 —— host 只写 pinned 描述符,交付拷贝与
   // 完成判定全在设备(契约见 consumer_kernel.cu)。
   struct KDesc { uint64_t src, dst, len, pad; };

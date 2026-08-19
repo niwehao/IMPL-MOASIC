@@ -55,6 +55,7 @@ int main() {
   CK(cudaMemset(prog_d, 0, BLOCKS * sizeof(uint64_t)));
   memset(ctr, 0, 256);
   *(uint64_t*)(ctr + 128) = ~0ull;
+  *(uint64_t*)(ctr + 160) = 1;   // 输入门:单测输入常备,直接开
   *(uint64_t*)(ctr + 192) = 1;   // gen(坑 #36 代际号;单测固定一代)
 
   cudaStream_t sg;
