@@ -147,6 +147,7 @@ static mosaicResult_t wait_coll(Comm* c) {
 namespace mosaic {
 bool zerostream_arm(Comm* c);
 bool gate_arm(Comm* c, void* stream, uint32_t want);
+void devpipe_submit_prep(Comm* c, bool want_rwin);
 
 // MOSAIC_ZEROSTREAM:无流调用方(bench)也走 kdesc 零流数据面(nvshmem 面的
 // 待收敛项,Raven Gate 裁决 —— File/debug-819/local-0819-transport-cleanup-plan.md §2)。
@@ -209,6 +210,13 @@ static mosaicResult_t submit_coll(Comm* c,
       }
     }
     c->gated = false;
+    // dev-pipe2(app 线程 = 门外安全点):recvbuf IPC 句柄导出 + 补 open 缓存 miss
+    {
+      bool has_intra = false;
+      for (int p = 0; p < n; p++)
+        if (p != c->cfg.rank && c->topo.same_host(c->cfg.rank, p)) { has_intra = true; break; }
+      devpipe_submit_prep(c, c->cfg.use_gpu && c->zs_cap && has_intra);
+    }
     // ── 完成契约(单一路径,按调用方输入分档):
     //   caller_stream != 0(torch 等流式调用方)⇒ **流序完成**:门核排在 caller
     //     流上等 done_flag,本调用提交后即返回;下一次提交先隐式收尾上一笔

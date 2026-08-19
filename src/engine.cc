@@ -99,10 +99,12 @@ typedef int (*cu_mfunc_fn)(void** fn, void* mod, const char* name);
 typedef int (*cu_launch_fn)(void* f, unsigned gx, unsigned gy, unsigned gz,
                             unsigned bx, unsigned by, unsigned bz,
                             unsigned shmem, void* stream, void** params, void** extra);
+typedef int (*cu_addrrange_fn)(void** base, size_t* size, unsigned long long ptr);
 struct CuDrv {
   cu_mload_fn mload = nullptr;
   cu_mfunc_fn mfunc = nullptr;
   cu_launch_fn launch = nullptr;
+  cu_addrrange_fn addrrange = nullptr;   // cuMemGetAddressRange(dev-pipe2 求分配基址)
   bool ok = false;
 };
 static CuDrv& cu_drv() {
@@ -113,6 +115,8 @@ static CuDrv& cu_drv() {
     r.mload = (cu_mload_fn)dlsym(h, "cuModuleLoadDataEx");
     r.mfunc = (cu_mfunc_fn)dlsym(h, "cuModuleGetFunction");
     r.launch = (cu_launch_fn)dlsym(h, "cuLaunchKernel");
+    r.addrrange = (cu_addrrange_fn)dlsym(h, "cuMemGetAddressRange_v2");
+    if (!r.addrrange) r.addrrange = (cu_addrrange_fn)dlsym(h, "cuMemGetAddressRange");
     r.ok = r.mload && r.mfunc && r.launch;
     return r;
   }();
@@ -128,26 +132,20 @@ static CuDrv& cu_drv() {
 #include "consumer_kernel_ptx.h"
 // 消费者核并行度:blocks = nch × bpg(consumer_kernel.cu 的 channel 模型)。
 // MOSAIC_KCONS="blocks,nch" 为**临时扫描开关**(A100 机内带宽标定用,定档后删)。
-static unsigned kcons_blocks() {
-  static unsigned v = [] {
+static void kcons_cfg(unsigned* b, unsigned* n, unsigned* t) {
+  static unsigned vb = 0, vn = 0, vt = 0;
+  if (!vb) {
+    vb = 8; vn = 4; vt = 256;
     const char* e = getenv("MOSAIC_KCONS");
-    unsigned b = 8, n = 4;
-    if (e && *e) sscanf(e, "%u,%u", &b, &n);
-    (void)n;
-    return b;
-  }();
-  return v;
+    if (e && *e) sscanf(e, "%u,%u,%u", &vb, &vn, &vt);
+    if (vt < 32) vt = 32;
+    if (vt > 1024) vt = 1024;
+  }
+  *b = vb; *n = vn; *t = vt;
 }
-static unsigned kcons_nch() {
-  static unsigned v = [] {
-    const char* e = getenv("MOSAIC_KCONS");
-    unsigned b = 8, n = 4;
-    if (e && *e) sscanf(e, "%u,%u", &b, &n);
-    return n;
-  }();
-  return v;
-}
-static const unsigned KCONS_THREADS = 256;
+static unsigned kcons_blocks() { unsigned b,n,t; kcons_cfg(&b,&n,&t); return b; }
+static unsigned kcons_nch()    { unsigned b,n,t; kcons_cfg(&b,&n,&t); return n; }
+static unsigned kcons_threads(){ unsigned b,n,t; kcons_cfg(&b,&n,&t); return t; }
 static bool kcons_init(Comm* c) {
   CuDrv& d = cu_drv();
   if (!d.ok) return false;
@@ -239,6 +237,45 @@ bool gate_arm(Comm* c, void* stream, uint32_t want) {
   return cu_drv().launch(c->gate_fn, 1, 1, 1, 1, 1, 1, 0, stream, gp, nullptr) == 0;
 }
 
+// dev-pipe2(app 线程,提交路径 = 门外唯一安全的 CUDA 调用点):
+// ①为本 coll 的 recvbuf 求分配基址并导出 IPC 句柄(接收方窗口);
+// ②补 open 发送侧缓存 miss 的句柄(engine 在窗口内只查表,不 open)。
+void devpipe_submit_prep(Comm* c, bool want_rwin) {
+  {
+    std::vector<std::array<uint8_t, 64>> todo;
+    {
+      std::lock_guard<std::mutex> lk(c->ipc_mu);
+      todo.swap(c->ipc_pending);
+    }
+    for (auto& h : todo) {
+      void* base = nullptr;
+      cudaIpcMemHandle_t ih;
+      memcpy(&ih, h.data(), sizeof(ih));
+      if (cudaIpcOpenMemHandle(&base, ih, cudaIpcMemLazyEnablePeerAccess) == cudaSuccess) {
+        std::lock_guard<std::mutex> lk(c->ipc_mu);
+        c->ipc_map[h] = base;
+      } else {
+        MLOG_WARN("E5032 IPC open 失败(直写降级为环路径)");
+        std::lock_guard<std::mutex> lk(c->ipc_mu);
+        c->ipc_map[h] = nullptr;              // 记失败,避免反复排队
+      }
+    }
+  }
+  c->my_rwin_valid = false;
+  if (!want_rwin || !c->recvbuf) return;
+  void* base = nullptr;
+  size_t sz = 0;
+  if (cu_drv().addrrange &&
+      cu_drv().addrrange(&base, &sz, (unsigned long long)(uintptr_t)c->recvbuf) == 0 && base) {
+    cudaIpcMemHandle_t ih;
+    if (cudaIpcGetMemHandle(&ih, base) == cudaSuccess) {
+      memcpy(c->my_rwin_handle, &ih, sizeof(ih));
+      c->my_rwin_base_off = (uint64_t)((uint8_t*)c->recvbuf - (uint8_t*)base);
+      c->my_rwin_valid = true;
+    }
+  }
+}
+
 // 供 api.cc 调(kdesc 数据面挂载):启动消费者核(+ nvsh 时的镜像核)。
 // 核退出 = coll 收尾写 stop(kdesc_release_gate)。完成语义:流序档由 caller
 // 流上的门核提供,阻塞档由 wait_coll 提供。
@@ -272,7 +309,7 @@ bool zerostream_arm(Comm* c) {
                        gen = c->kdesc_gen;
     unsigned int cap = c->kdesc_cap, nch = kcons_nch();
     void* params[7] = {&ring, &ctr, &prog, &start, &cap, &gen, &nch};
-    if (d.launch(c->kcons_fn, kcons_blocks(), 1, 1, KCONS_THREADS, 1, 1, 0,
+    if (d.launch(c->kcons_fn, kcons_blocks(), 1, 1, kcons_threads(), 1, 1, 0,
                  c->stream_cons, params, nullptr) != 0)
       return false;                     // 没起来,无需叫停
   }
@@ -588,18 +625,28 @@ static uint32_t pc_key(Comm* c, const SliceHdr& h) {
   uint32_t sub = ((h.dst % K) + K - (h.src % K)) % K;
   return base * K + sub;
 }
+// MOSAIC_HOTFIRST:**临时 A/B 开关**(方案 B 发送序实验,Gate 收敛后删败者)。
+// 1(默认)= 同结构序内热 dst 先发;0 = 旧 FIFO。
+static int opt_hotfirst() { static int v = env_flag("MOSAIC_HOTFIRST", 1); return v; }
+// 发送序:先 (wave,hop[,PC 色])结构序(PC 是决策语义,优先),再热度降序。
+// true = a 应排在 b 之前
+static inline bool order_before(Comm* c, const SliceHdr& a, const SliceHdr& b) {
+  uint32_t ka = pc_key(c, a), kb = pc_key(c, b);
+  if (ka != kb) return ka < kb;
+  if (!opt_hotfirst() || c->dst_hot.empty()) return false;   // 稳定 FIFO
+  return c->dst_hot[a.dst] > c->dst_hot[b.dst];
+}
 static void enqueue_hop(Comm* c, const SliceHdr& h, void* gpu_src, int relay_slot) {
   ReadySlice r;
   r.h = h; r.gpu_src = gpu_src; r.relay_slot = relay_slot;
   const int peer = h.path[h.hop + 1];
   auto* es = ES(c);
   auto& q = c->topo.same_host(c->cfg.rank, peer) ? es->ready_nv : es->ready_nic;
-  if (c->pc_k > 0) {
-    uint32_t k = pc_key(c, h);
+  if (c->pc_k > 0 || (opt_hotfirst() && !c->dst_hot.empty())) {
     auto it = q.end();
-    while (it != q.begin()) {          // 从尾部找插入点(新 slice 通常 key 最大)
+    while (it != q.begin()) {          // 从尾部找插入点(新 slice 通常排尾)
       auto prev = it; --prev;
-      if (pc_key(c, prev->h) <= k) break;
+      if (!order_before(c, h, prev->h)) break;
       it = prev;
     }
     q.insert(it, r);
@@ -893,6 +940,12 @@ static void coll_begin(Comm* c) {
     if (hi > 0 && lo < hi) nvsh_note_sendbuf(c, (const uint8_t*)c->sendbuf + lo, hi - lo);
   }
 
+  // dev-pipe2:本 coll 直写账基线(DLV 计数跨 coll 单调,起点快照取差)
+  c->rwin_published = false;
+  for (int p = 0; p < n; p++) {
+    c->dlv_folded[p] = 0;
+    c->dlv_base[p] = (p != me && c->rx_ring[p]) ? shm_dlv_read(c->rx_ring[p]) : 0;
+  }
   c->ledger.clear_epoch();
   for (int k = 0; k < RES_KINDS; k++) es->base_passed[k] = c->buck[k].passed;
   memset(c->fab_own, 0, sizeof(c->fab_own));               // fabric 账随 epoch 清零
@@ -1070,6 +1123,17 @@ static void coll_begin(Comm* c) {
     MLOG_DBG("wave_frag coll=%d per_pair=%llu frag=%lluKB C=%d ratio=%.2f → W=%d",
              c->coll_id, (unsigned long long)per_pair,
              (unsigned long long)(frag >> 10), cc, ratio, eff_W(c));
+  }
+  // 发送序热度表(hot-pair-first):dst 入向列和。direct/FAST 同一发射路径
+  // 也用它,但全局 D 只在 mosaic 语义下可靠 —— 其余调度器用本地 scounts 近似
+  // (只影响本 rank 发往各 dst 的相对序,安全)。
+  c->dst_hot.assign(n, 0);
+  if (c->cfg.sched == MOSAIC_SCHED_MOSAIC) {
+    for (int s2 = 0; s2 < n; s2++)
+      for (int d2 = 0; d2 < n; d2++)
+        if (s2 != d2) c->dst_hot[d2] += D[(size_t)s2 * n + d2];
+  } else {
+    for (int d2 = 0; d2 < n; d2++) c->dst_hot[d2] = c->scounts[d2];
   }
   c->pc_k = 0;
   if (c->cfg.sched == MOSAIC_SCHED_MOSAIC && c->cfg.pair_color != 0) {
@@ -1622,6 +1686,45 @@ static void pump_one_queue(Comm* c, std::deque<ReadySlice>& q, bool via_nic) {
       // 在 caller(legacy)流挂着门等待时会被驱动 peer-copy 路径隐式序列化
       // (Raven 实测 E5002 集体卡死);SM 直写 NVLink 绕开(NCCL 同款)。
       // publish 必须按 reserve 序 ⇒ kdesc 满时先背压,不 reserve 不混用。
+      // dev-pipe2:final-hop 机内片在 kdesc 档下优先直写对端 recvbuf(1-copy)。
+      // 对端窗口未发布 = 对端 input 未就绪 ⇒ 背压等(与交付输入门同语义);
+      // 窗口哨兵 ~0 = 对端声明不可直写 ⇒ 走环路径;映射 miss ⇒ 本 coll 走环,
+      // 句柄排队下一次 submit 补 open。
+      if (c->kdesc_active && ring && r.h.hop + 1 >= r.h.nhops) {
+        uint8_t hbuf[64];
+        uint64_t doff = 0;
+        if (!shm_rwin_read(c->tx_ring[peer], (uint32_t)c->coll_id, hbuf, &doff))
+          return;                                    // 窗口未发布 = 背压
+        if (doff != ~0ull) {
+          std::array<uint8_t, 64> key;
+          memcpy(key.data(), hbuf, 64);
+          void* base = nullptr;
+          bool known = false;
+          {
+            std::lock_guard<std::mutex> lk(c->ipc_mu);
+            auto it = c->ipc_map.find(key);
+            if (it != c->ipc_map.end()) { known = true; base = it->second; }
+            else if (std::find(c->ipc_pending.begin(), c->ipc_pending.end(), key) ==
+                     c->ipc_pending.end())
+              c->ipc_pending.push_back(key);         // 下次 submit(门外)补 open
+          }
+          if (known && base) {
+            if (c->kdesc_pushed - c->kdesc_consumed >= c->kdesc_cap) return;  // 背压
+            uint8_t* dst = (uint8_t*)base + doff + r.h.off;
+            if (!kdesc_push(c, (uint64_t)(uintptr_t)r.gpu_src, dst, r.h.len)) return;
+            KEntry e; e.kind = 6; e.t.peer = peer; e.t.h = r.h;
+            e.t.relay_slot = r.relay_slot;
+            es->kq.push_back(e);
+            c->buck[RES_NV_UP].take(r.h.len);
+            if (r.h.hop == 0) c->posted_send += r.h.len;
+            if (!c->ph_first_post_ns) c->ph_first_post_ns = now_ns();
+            q.pop_front();
+            continue;
+          }
+          // known 且 base==nullptr(open 失败)或未知:落环路径(known 失败)
+          // 或本 coll 先落环(miss;句柄已排队)
+        }
+      }
       if (c->kdesc_active && ring) {
         if (c->kdesc_pushed - c->kdesc_consumed >= c->kdesc_cap) return;  // 背压
         SliceHdr* hh = nullptr;
@@ -1765,6 +1868,13 @@ static void pump_rx(Comm* c) {
           c->st.corridor_bytes[e.st.h.corr & 7] += e.st.h.len;
           det_feed(c, 0, e.st.h.len);
         }
+      } else if (e.kind == 6) {
+        // dev-pipe2 直写完成(消费者核已把字节写进对端 recvbuf):
+        // 经 SHM 邮箱给对端记交付账;对端 fold 后计入它的 total_recv/FIN
+        shm_dlv_add(c->tx_ring[e.t.peer], e.t.h.len);
+        c->st.bytes_sent += e.t.h.len;
+        c->st.corridor_bytes[e.t.h.corr & 7] += e.t.h.len;
+        if (e.t.relay_slot >= 0) c->relay_free.push_back(e.t.relay_slot);
       } else if (e.kind == 4) {
         // verbs 流序 TX:消费者核已把 payload 拷进 GPU staging ⇒ 发 WR
         c->nic_tx_outstanding++;
@@ -1839,6 +1949,41 @@ static void try_self_copy(Comm* c) {
   KEntry e; e.kind = 2;
   es->kq.push_back(e);
   c->self_copy_pending = false;
+}
+
+// dev-pipe2 泵:①input 就绪后向机内各 src 发布本 coll 的 recv 窗口(SHM 写,
+// 零 CUDA);②折叠各机内 src 直写交付的字节进账目(与 rx_retire 的 final-hop
+// 语义对齐;wave 归属按当前波近似 —— 机内直写形态默认单波,见 op.md)。
+static void pump_devpipe(Comm* c) {
+  auto* es = ES(c);
+  if (!es->coll_started) return;
+  const int n = c->cfg.nranks, me = c->cfg.rank;
+  if (!c->rwin_published && c->kdesc_active && kdesc_input_ready(c)) {
+    for (int p = 0; p < n; p++) {
+      if (p == me || !c->rx_ring[p]) continue;
+      // 无效窗口用 ~0 哨兵显式广播:发送方读到即确定走环路径,不再等待
+      shm_rwin_publish(c->rx_ring[p], (uint32_t)c->coll_id, c->my_rwin_handle,
+                       c->my_rwin_valid ? c->my_rwin_base_off + c->rdispls[p] : ~0ull);
+    }
+    c->rwin_published = true;
+  }
+  DstCtrl& d = c->dst;
+  for (int p = 0; p < n; p++) {
+    if (p == me || !c->rx_ring[p]) continue;
+    uint64_t cur = shm_dlv_read(c->rx_ring[p]);
+    uint64_t delta = cur - c->dlv_base[p] - c->dlv_folded[p];
+    if (!delta) continue;
+    c->dlv_folded[p] += delta;
+    c->buck[RES_NV_DN].take(delta);
+    c->st.bytes_recv += delta;
+    d.total_recv += delta;
+    d.recv_by_src[p] += delta;
+    d.wave_delivered += delta;
+    if (!es->fin_sent && d.total_recv >= c->total_recv_expect && c->total_recv_expect > 0) {
+      es->fin_sent = true;
+      ctrl_bcast(c, CT_FIN, (uint16_t)(c->coll_id & 0xFFFF), nullptr, 0);
+    }
+  }
 }
 
 static void pump_wait_relay(Comm* c) {
@@ -2229,7 +2374,7 @@ static void event_loop(Comm* c) {
           MLOG_DBG("demand 块尾(got=%d ssp=%d)", es->demand_got, (int)c->ssp_active); } }
       if (es->demand_got >= n - 1 || c->ssp_active) coll_begin(c);
     }
-    seg(2); try_self_copy(c); pump_wait_relay(c);
+    seg(2); try_self_copy(c); pump_devpipe(c); pump_wait_relay(c);
     seg(3); pump_shm(c);
     seg(4); pump_ready(c);
     seg(5); pump_tx(c);

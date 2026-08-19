@@ -13,8 +13,10 @@
 #ifndef MOSAIC_INTERNAL_H
 #define MOSAIC_INTERNAL_H
 
+#include <array>
 #include <atomic>
 #include <cstdint>
+#include <map>
 #include <cstdio>
 #include <cstring>
 #include <deque>
@@ -328,6 +330,10 @@ struct Comm {
   int nic_tx_outstanding = 0;      // 在途 NIC 发送数(检测器 busy 判定)
   int pc_k = 0;                    // 本次 collective 生效的 pair_color K
   int pace_hot = -1;               // PACE:预测 straggler;-1 = 门未开
+  // 发送序的热度表(coll_begin 由 demand 列和填充):dst 入向总字节。
+  // hot-pair-first(方案 B):同 (wave,hop,PC) 结构序内,热 dst 的片先发 ——
+  // makespan 由最热的边定,让它的入向尽早聚齐(尺寸冷热不均时收益)。
+  std::vector<uint64_t> dst_hot;
   std::vector<uint8_t> pace_cold;  // [rank] 冷 dst 标记
   std::vector<int> peer_wave;      // [rank] 该 dst 最新已发波号+1(来自通道 B)
   std::vector<uint8_t> peer_fin;   // [rank] 该 dst 本次 collective 已收满
@@ -399,6 +405,20 @@ struct Comm {
   // 并发 cudaFree 会楔死其他线程的流调用 —— 引擎只写 pinned/发 verbs WR,
   // 搬运全在消费者核)。
   bool gated = false;               // 本 collective 走流序完成
+  // ── dev-pipe2:机内 final-hop 直写(1-copy)。本 rank 作为接收方,每 coll
+  // 在 submit(app 线程,门外)导出 recvbuf 所在分配的 IPC 句柄;engine 在
+  // input 就绪后经 SHM 邮箱发布窗口。发送方按句柄内容缓存映射(物理分配
+  // 唯一 ⇒ 免 VA 复用陈旧问题);缓存 miss 时该 coll 走环路径,句柄排队到
+  // 下一次 submit 在 app 线程(门外,无 cudaFree 楔死风险)补 open。
+  bool my_rwin_valid = false;
+  uint8_t my_rwin_handle[64] = {0};
+  uint64_t my_rwin_base_off = 0;    // recvbuf - 分配基址
+  bool rwin_published = false;
+  uint64_t dlv_base[MAX_RANKS] = {0};    // 本 coll 起点的 DLV 快照
+  uint64_t dlv_folded[MAX_RANKS] = {0};  // 本 coll 已折入账目的直写字节
+  std::mutex ipc_mu;                // app(open)与 engine(查表/入队)交接
+  std::vector<std::array<uint8_t, 64>> ipc_pending;   // 待 open 的句柄
+  std::map<std::array<uint8_t, 64>, void*> ipc_map;   // 句柄内容 → 本进程映射基址
   void* done_flag_host = nullptr;   // uint32_t*(pinned mapped;引擎完成时写 coll_id)
   uint64_t done_flag_dev = 0;
   void* gate_mod = nullptr;         // 自旋门核 CUmodule(PTX JIT)
@@ -531,6 +551,12 @@ void shm_ring_commit(ShmRing* r);
 void shm_ring_pop(ShmRing* r);
 int  shm_ring_inflight(ShmRing* r);
 void shm_ring_region(ShmRing* r, void** base, size_t* bytes);
+// dev-pipe2 机内直写邮箱(net.cc;方向约定:s→d 数据环上,RWIN 由 d 写 s 读,
+// DLV 由 s 写 d 读)。dst_off == ~0ull = 接收方声明"本 coll 不可直写,走环路径"。
+void shm_rwin_publish(ShmRing* r, uint32_t coll, const void* handle64, uint64_t dst_off);
+bool shm_rwin_read(ShmRing* r, uint32_t coll, void* handle64, uint64_t* dst_off);
+void shm_dlv_add(ShmRing* r, uint64_t bytes);
+uint64_t shm_dlv_read(ShmRing* r);
 void shm_ring_stat(ShmRing* r, uint64_t* head, uint64_t* tail, int* inflight, int* pending);
 void stage_release(Comm* c, int slot);
 // 建链期的阻塞式小报文交换(经已有 TCP 数据连接;verbs 用它换 QP 信息)

@@ -32,11 +32,24 @@ struct ShmRingHdr {
   std::atomic<uint64_t> head;   // 生产者已发布的条数
   std::atomic<uint64_t> tail;   // 消费者已回收的条数
   uint32_t nslots, slot_bytes;
-  // IPC 模式:payload 放在**设备内存**里(模拟 NVLink 的 GPU↔GPU 直达),
-  // 共享内存只承载控制信息。IPC 句柄直接写在环头里 —— 双方本来就共享这块
-  // 内存,不需要再为句柄交换设计一套协议。
+  // payload 在设备内存(CUDA IPC 环),共享内存只承载控制信息;
+  // IPC 句柄直接写在环头里(双方本就共享这块内存)。
   std::atomic<uint32_t> ipc_ready;
   uint8_t ipc_handle[128];
+  // ── 机内直写(dev-pipe2)邮箱:环方向 = 生产者→消费者,借同一条环带两份元数据
+  //   RWIN(消费者侧 recvbuf 窗口):**环的消费者**(= 对端,作为数据接收方)
+  //     每 collective 发布一次:{coll, 它 recvbuf 所在分配的 IPC 句柄,
+  //     dst_off = (recvbuf-分配基址) + rdispls[本环生产者]}。生产者(数据发送方)
+  //     读到匹配 coll 的 RWIN 后,可把 payload 直写进对端 recvbuf。
+  //     注意方向:字段写在**本环生产者的 rx_ring[对端]**(= 对端的 tx 环)里,
+  //     即"谁要收数据,谁在自己指向发送方的环头上发布窗口"。
+  //   DLV(发送方→接收方的交付账):发送方直写完成后按字节数**单调累加**;
+  //     接收方每 coll 起点快照基线,差值 = 本 coll 已交付。
+  std::atomic<uint64_t> rwin_seq;      // 发布序号(奇偶无义,读侧只看 coll 匹配)
+  std::atomic<uint32_t> rwin_coll;
+  uint8_t rwin_handle[64];             // cudaIpcMemHandle_t
+  std::atomic<uint64_t> rwin_dst_off;  // 分配基址→(recvbuf+rdispls[producer]) 偏移
+  std::atomic<uint64_t> dlv_bytes;     // 单调:生产者直写交付的累计字节
 };
 struct ShmSlotHdr {
   std::atomic<uint64_t> ready;  // == seq+1 表示 payload 有效
@@ -177,6 +190,32 @@ bool shm_ring_get_ipc(ShmRing* r, void* handle, size_t n) {
     usleep(200);
   }
   return false;
+}
+
+// dev-pipe2 邮箱访问(见 ShmRingHdr 注释;全部无锁:单写者 + 原子发布)
+void shm_rwin_publish(ShmRing* r, uint32_t coll, const void* handle64, uint64_t dst_off) {
+  if (!r) return;
+  memcpy(r->hdr->rwin_handle, handle64, 64);
+  r->hdr->rwin_dst_off.store(dst_off, std::memory_order_relaxed);
+  r->hdr->rwin_coll.store(coll, std::memory_order_relaxed);
+  r->hdr->rwin_seq.fetch_add(1, std::memory_order_release);
+}
+bool shm_rwin_read(ShmRing* r, uint32_t coll, void* handle64, uint64_t* dst_off) {
+  if (!r) return false;
+  uint64_t s0 = r->hdr->rwin_seq.load(std::memory_order_acquire);
+  if (s0 == 0 || r->hdr->rwin_coll.load(std::memory_order_relaxed) != coll) return false;
+  memcpy(handle64, r->hdr->rwin_handle, 64);
+  *dst_off = r->hdr->rwin_dst_off.load(std::memory_order_relaxed);
+  // 再读一次 seq/coll 防撕裂(发布是整体覆盖;coll 不匹配即弃)
+  if (r->hdr->rwin_seq.load(std::memory_order_acquire) != s0 ||
+      r->hdr->rwin_coll.load(std::memory_order_relaxed) != coll) return false;
+  return true;
+}
+void shm_dlv_add(ShmRing* r, uint64_t bytes) {
+  if (r) r->hdr->dlv_bytes.fetch_add(bytes, std::memory_order_release);
+}
+uint64_t shm_dlv_read(ShmRing* r) {
+  return r ? r->hdr->dlv_bytes.load(std::memory_order_acquire) : 0;
 }
 
 void shm_ring_region(ShmRing* r, void** base, size_t* bytes) {
