@@ -131,11 +131,14 @@ static CuDrv& cu_drv() {
 // (推描述符 / 写 stop)。契约与内核见 consumer_kernel.cu。
 #include "consumer_kernel_ptx.h"
 // 消费者核并行度:blocks = nch × bpg(consumer_kernel.cu 的 channel 模型)。
-// MOSAIC_KCONS="blocks,nch" 为**临时扫描开关**(A100 机内带宽标定用,定档后删)。
+// MOSAIC_KCONS="blocks,nch,threads":容量参数(不改数据面走法)。
+// 默认 8,4,512 = A100 标定(Result/raven-0819-gpudev-intra):
+//   e2e 最优带宽/干扰折中 —— 32MB/pair 410Gbps、MoE e2e 与 8,4,256 持平;
+//   更多 block 提纯 A2A 但训练重叠期抢 SM(16 块时 bwd +90%),勿盲目加大。
 static void kcons_cfg(unsigned* b, unsigned* n, unsigned* t) {
   static unsigned vb = 0, vn = 0, vt = 0;
   if (!vb) {
-    vb = 8; vn = 4; vt = 256;
+    vb = 8; vn = 4; vt = 512;
     const char* e = getenv("MOSAIC_KCONS");
     if (e && *e) sscanf(e, "%u,%u,%u", &vb, &vn, &vt);
     if (vt < 32) vt = 32;
