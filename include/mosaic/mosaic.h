@@ -104,19 +104,9 @@ mosaicResult_t mosaicAlltoallvEx(mosaicComm_t comm,
                                  void* recvbuf, const size_t rcounts[], const size_t rdispls[],
                                  uint64_t caller_stream, int demand_mode, uint64_t row_bytes);
 
-/* S3 异步提交(sota_plan 2026-08-16;默认不走 = 旧行为):
- *   Begin:提交后立即返回,不等完成。若平台支持 stream memops 且
- *     caller_stream 非 0,会在该流上排一个"等完成标志"的设备侧等待 ——
- *     调用方流上后续算子自动等数据就绪,host 全程不阻塞(MoE 集成层的
- *     host 阻塞拖累即此消除)。数据/决策序与阻塞版逐字节相同。
- *   End:阻塞收尾(读 stats / 复用 sendbuf 前、或平台不支持 memops 时必调)。
- *   任何新的 Begin/Alltoallv/Barrier 会先隐式 End 上一笔。
- *   调用方义务:完成前 sendbuf/recvbuf 保持有效(集成层持引用)。 */
-mosaicResult_t mosaicAlltoallvBegin(mosaicComm_t comm,
-                                    const void* sendbuf, const size_t scounts[], const size_t sdispls[],
-                                    void* recvbuf, const size_t rcounts[], const size_t rdispls[],
-                                    uint64_t caller_stream, int demand_mode, uint64_t row_bytes);
-mosaicResult_t mosaicAlltoallvEnd(mosaicComm_t comm);
+/* (原 mosaicAlltoallvBegin/End 异步提交 API 已删,2026-08-19:每轮 A2A
+ *  结束必有同步是硬不变量,异步提交语义连同实现一起移除 ——
+ *  见 File/debug-819/local-0819-transport-cleanup-plan.md。) */
 
 /* 小数据 allgather(host 内存,走控制面)。MoE 集成需要先交换各 rank 的
    token 计数才能定 buffer 大小 —— 这类元数据交换不该占数据管。

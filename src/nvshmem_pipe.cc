@@ -428,7 +428,6 @@ int nvsh_post_slice(Comm* c, int peer, const SliceHdr& h, const void* gpu_src,
   // (sendbuf 提交时注册 / relay 池 setup 注册),头走注册的 pinned 头池。
   // 同 PE 单 QP 按发出序交付 ⇒ payload put 先发、hdr+signal 后发即可
   // (与 zcopy 流路径同一条顺序论证;多 QP 形态同样勿开,D11)。
-  static const bool s3_streams = getenv("MOSAIC_S3_STREAMS") != nullptr;
   // 源必须是 NVSHMEM 注册内存才能走 host-API put。**注册失败是永久性的**
   // (torch 分配器给的某些 sendbuf 就是注册不上,E5019;29353960-151611 实测
   // 32 rank 里恰好 2 个 rank 注册失败,而缺数据的就是这 2 个)⇒ 这里绝不能
@@ -443,7 +442,7 @@ int nvsh_post_slice(Comm* c, int peer, const SliceHdr& h, const void* gpu_src,
   // staging 槽:staging 只有 2×nslots=64 个,而在途窗口可达 nslots×peers,
   // 全走 staging 会把槽耗尽并形成跨节点循环等待(164755 实测)。
   // 顺序由 fence 保证(坑 #39)。源没注册 ⇒ 返回 2 走 kdesc staging 合并路径。
-  if (c->kdesc_active && !s3_streams && v->hhdr_pool && v->hhdr_dev) {
+  if (c->kdesc_active && v->hhdr_pool && v->hhdr_dev) {
     if (!nvsh_src_registered(v, gpu_src, h.len)) return 2;
     if (v->hhdr_free.empty()) return 1;                          // 头池背压(临时)
     uint64_t seq = v->sent_cnt[peer]++;

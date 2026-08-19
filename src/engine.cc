@@ -2004,10 +2004,9 @@ static void event_loop(Comm* c) {
       uint64_t hb_t = now_ns();
       if (hb_t >= hb_next) {
         hb_next = hb_t + 1000000000ull;
-        MLOG_DBG("evloop 心跳 phase=%d state=%d started=%d got=%d coll=%d flag=%u kd=%llu/%llu",
+        MLOG_DBG("evloop 心跳 phase=%d state=%d started=%d got=%d coll=%d kd=%llu/%llu",
                  g_ev_phase.load(), c->coll_state.load(), (int)es->coll_started,
                  es->demand_got, c->coll_id,
-                 c->done_flag_host ? *(volatile uint32_t*)c->done_flag_host : 0u,
                  (unsigned long long)c->kdesc_consumed, (unsigned long long)c->kdesc_pushed);
       }
     }
