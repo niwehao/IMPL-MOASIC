@@ -432,9 +432,6 @@ struct Comm {
   uint64_t caller_stream = 0;       // 本 coll 的调用方流(诊断:查它是否卡住)
   // O3 控制面走 RDMA(MOSAIC_CTRL=verbs;失败/超长自动回退 TCP)
   bool ctrl_verbs = false;
-  // S0d 控制面走 eRPC(MOSAIC_CTRL=erpc;会话未就绪自动回退 TCP)
-  bool ctrl_erpc = false;
-  void* erpc = nullptr;            // erpc_ctrl.cc 的上下文(event 线程私有)
 
   // ---- 本次 collective ----
   const void* sendbuf = nullptr;
@@ -538,24 +535,12 @@ void shm_ring_pop(ShmRing* r);
 int  shm_ring_inflight(ShmRing* r);
 void shm_ring_region(ShmRing* r, void** base, size_t* bytes);
 void shm_ring_stat(ShmRing* r, uint64_t* head, uint64_t* tail, int* inflight, int* pending);
-bool rx_gate(Comm* c, bool via_nic);   // engine.cc 定义,net.cc 读 socket 前调
-int  tcp_try_flush(Comm* c, int peer);
-int  tcp_enqueue_slice(Comm* c, int peer, const SliceHdr& h, const void* payload, int stage_slot);
+bool rx_gate(Comm* c, bool via_nic);   // engine.cc 定义,数据收取前调
 void stage_release(Comm* c, int slot);
-int  tcp_pending(Comm* c, int peer);
-int  tcp_pending_all(Comm* c);
-int  tcp_rx_state(Comm* c, int peer);
 // 建链期的阻塞式小报文交换(经已有 TCP 数据连接;verbs 用它换 QP 信息)
 int  net_blocking_exchange(Comm* c, int peer, const void* mine, void* remote, size_t n);
 
-// erpc_ctrl.cc(S0d,MOSAIC_CTRL=erpc;make ERPC=1 才有实体,否则 stub)。
-// 线程契约:setup/teardown/poll 只能 event 线程调;send 任意线程
-// (app 线程的报文入队由 event 线程代发)。0=已接手,-1=不可用(回退 TCP)。
-int  erpc_ctrl_setup(Comm* c);
-void erpc_ctrl_teardown(Comm* c);
-int  erpc_ctrl_poll(Comm* c);
-int  erpc_ctrl_send(Comm* c, int peer, const void* framed, uint32_t n);
-// net.cc:已组帧(含 CtrlHdr)报文直接走 TCP 队列(eRPC 回退路径复用)
+// net.cc:已组帧(含 CtrlHdr)报文直接走 TCP 队列
 int  ctrl_send_tcp(Comm* c, int peer, const void* framed, uint32_t n);
 
 // verbs.cc(RoCE RDMA 数据面;MOSAIC_NIC=verbs 时启用,失败自动回退 TCP)

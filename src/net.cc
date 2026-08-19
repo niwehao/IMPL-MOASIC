@@ -192,48 +192,21 @@ void shm_ring_region(ShmRing* r, void** base, size_t* bytes) {
 }
 
 // ─────────────────────────────────────────────────────────── TCP 连接
-struct TxItem {
-  SliceHdr h;
-  const uint8_t* payload = nullptr;
-  uint32_t len = 0;
-  int stage_slot = -1;
-  size_t sent = 0;             // 已写字节(含 34 字节头)
-};
-
+// 2026-08-19 清理:TCP **数据面**已删除(slice 只走 verbs/nvshmem;建链失败 =
+// 硬错 fail-fast,不再静默降速)。TCP 只承担 ①bootstrap(QP/uid 交换,经
+// dconn 的阻塞收发)②控制面(通道 A/B/demand/FIN,MOSAIC_CTRL=tcp 或
+// verbs 回退)。
 struct Conn {
   int fd = -1;
   int peer = -1;
-  bool is_data = false;
+  bool is_data = false;        // 数据连接现在只用于 bootstrap 阻塞交换
   // rx
   std::vector<uint8_t> rbuf;   // ctrl:消息装配缓冲
   size_t rlen = 0;
-  // data rx 状态机。状态 2 不能省:头收全了但 staging 池空时必须停在这里,
-  // 否则下一轮会用 rx_got==34 去 read(0 字节) → 一直读到 0 → 静默死锁。
-  int rx_state = 0;            // 0 = 收头, 2 = 头齐待 staging, 1 = 收 payload
-  uint8_t rx_hdr[sizeof(SliceHdr)];
-  size_t rx_got = 0;
-  int rx_slot = -1;
-  uint8_t* rx_pay = nullptr;
   // tx
   std::deque<std::vector<uint8_t>> wq_ctrl;
   size_t wq_ctrl_off = 0;
-  std::deque<TxItem> wq_data;
 };
-
-// 还有多少 slice 卡在 TCP 发送队列里没写出去(用于收尾判定与 watchdog)
-int tcp_pending(Comm* c, int peer) {
-  Conn* cn = (peer >= 0 && peer < (int)c->dconn.size()) ? c->dconn[peer] : nullptr;
-  return cn ? (int)cn->wq_data.size() : 0;
-}
-int tcp_pending_all(Comm* c) {
-  int n = 0;
-  for (int p = 0; p < (int)c->dconn.size(); p++) n += tcp_pending(c, p);
-  return n;
-}
-int tcp_rx_state(Comm* c, int peer) {
-  Conn* cn = (peer >= 0 && peer < (int)c->dconn.size()) ? c->dconn[peer] : nullptr;
-  return cn ? cn->rx_state : -1;
-}
 
 static void set_nonblock(int fd) {
   int f = fcntl(fd, F_GETFL, 0);
@@ -247,14 +220,7 @@ static void set_sockopts(int fd) {
   setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &sz, sizeof(sz));
 }
 
-// staging 池的取还(定义在 engine.cc 之外,这里直接操作 Comm 的自由链)
-static int stage_alloc(Comm* c) {
-  if (c->stage_free.empty()) return -1;
-  int s = c->stage_free.back(); c->stage_free.pop_back(); return s;
-}
-static uint8_t* stage_ptr(Comm* c, int slot) {   // payload 区(槽首 HDR_STRIDE 归 RDMA 头用)
-  return (uint8_t*)c->stage_pool + (size_t)slot * (size_t)(HDR_STRIDE + c->cfg.slice_bytes) + HDR_STRIDE;
-}
+// staging 槽归还(取在 engine.cc 的 stage_alloc2)
 void stage_release(Comm* c, int slot) { if (slot >= 0) c->stage_free.push_back(slot); }
 
 // ─────────────────────────────────────────────────────────── 建链
@@ -442,11 +408,6 @@ int ctrl_send(Comm* c, int peer, CtrlType t, uint16_t aux, const void* body, uin
   h.rank = (uint8_t)c->cfg.rank; h.aux = aux;
   memcpy(m.data(), &h, sizeof(h));
   if (n) memcpy(m.data() + sizeof(h), body, n);
-  // S0d(MOSAIC_CTRL=erpc):跨机 ctrl 走 eRPC(UD RPC,p50 2.7µs 实测);
-  // 会话未就绪/池满回退 TCP —— 报文自带长度分帧 + 各类型容乱序(见 erpc_ctrl.cc)。
-  if (c->ctrl_erpc && !c->topo.same_host(c->cfg.rank, peer) &&
-      erpc_ctrl_send(c, peer, m.data(), (uint32_t)m.size()) == 0)
-    return 0;
   // O3(MOSAIC_CTRL=verbs):跨机 peer 的控制报文走 RDMA SEND,单程 ~5µs
   // (TCP 内核栈 ~30-60µs)。无槽/超长/建链中回退 TCP —— 报文自带长度分帧,
   // 两条通路交错到达也能正确解析(接收侧按 CtrlHdr 逐条处理,无流内状态)。
@@ -460,57 +421,6 @@ int ctrl_bcast(Comm* c, CtrlType t, uint16_t aux, const void* body, uint32_t n) 
   for (int p = 0; p < c->cfg.nranks; p++)
     if (p != c->cfg.rank) ctrl_send(c, p, t, aux, body, n);
   return 0;
-}
-
-// ─────────────────────────────────────────────────────────── 数据面收发
-int tcp_enqueue_slice(Comm* c, int peer, const SliceHdr& h, const void* payload, int stage_slot) {
-  Conn* cn = c->dconn[peer];
-  if (!cn) return -1;
-  TxItem it;
-  it.h = h; it.payload = (const uint8_t*)payload; it.len = h.len; it.stage_slot = stage_slot;
-  cn->wq_data.push_back(it);
-  return 0;
-}
-
-// 返回本次实际写完(可回收 staging)的 slice 数
-int tcp_try_flush(Comm* c, int peer) {
-  Conn* cn = c->dconn[peer];
-  if (!cn) return 0;
-  int done = 0;
-  while (!cn->wq_data.empty()) {
-    TxItem& it = cn->wq_data.front();
-    const size_t total = sizeof(SliceHdr) + it.len;
-    while (it.sent < total) {
-      iovec iov[2];
-      int niov = 0;
-      if (it.sent < sizeof(SliceHdr)) {
-        iov[niov].iov_base = (uint8_t*)&it.h + it.sent;
-        iov[niov].iov_len = sizeof(SliceHdr) - it.sent;
-        niov++;
-        iov[niov].iov_base = (void*)it.payload;
-        iov[niov].iov_len = it.len;
-        niov++;
-      } else {
-        size_t po = it.sent - sizeof(SliceHdr);
-        iov[niov].iov_base = (void*)(it.payload + po);
-        iov[niov].iov_len = it.len - po;
-        niov++;
-      }
-      ssize_t k = writev(cn->fd, iov, niov);
-      if (k < 0) {
-        if (errno == EAGAIN || errno == EWOULDBLOCK) return done;
-        MLOG_ERR("data writev → r%d: %s", peer, strerror(errno));
-        return done;
-      }
-      it.sent += k;
-    }
-    stage_release(c, it.stage_slot);
-    if (c->nic_tx_outstanding > 0) c->nic_tx_outstanding--;
-    det_feed(c, 0, it.len);              // 检测器:NIC↑ 完成事件(TCP 路径)
-    cn->wq_data.pop_front();
-    done++;
-  }
-  return done;
 }
 
 static void handle_ctrl_readable(Comm* c, Conn* cn) {
@@ -529,42 +439,6 @@ static void handle_ctrl_readable(Comm* c, Conn* cn) {
       cn->rbuf.erase(cn->rbuf.begin(), cn->rbuf.begin() + h.len);
     }
     if ((size_t)k < sizeof(tmp)) break;
-  }
-}
-
-static void handle_data_readable(Comm* c, Conn* cn) {
-  for (;;) {
-    // 同 pump_shm:逐 slice 判限速,否则一次可读事件会把整个 socket 缓冲
-    // (可能几十 MB)一口气吞掉,vNIC 下行的额定值就形同虚设
-    if (cn->rx_state == 0 && cn->rx_got == 0 && !rx_gate(c, true)) return;
-    if (cn->rx_state == 0) {
-      ssize_t k = read(cn->fd, cn->rx_hdr + cn->rx_got, sizeof(SliceHdr) - cn->rx_got);
-      if (k < 0) { if (errno == EAGAIN || errno == EWOULDBLOCK) return; MLOG_ERR("data read r%d: %s", cn->peer, strerror(errno)); return; }
-      if (k == 0) return;
-      cn->rx_got += k;
-      if (cn->rx_got < sizeof(SliceHdr)) return;
-      SliceHdr h; memcpy(&h, cn->rx_hdr, sizeof(h));
-      if (h.magic != SLICE_MAGIC) { MLOG_ERR("slice magic 错(r%d)", cn->peer); return; }
-      cn->rx_state = 2; cn->rx_got = 0;
-    }
-    if (cn->rx_state == 2) {
-      int slot = stage_alloc(c);
-      if (slot < 0) return;            // 背压:没有 staging 就停在状态 2,等回收后再来
-      cn->rx_slot = slot;
-      cn->rx_pay = stage_ptr(c, slot);
-      cn->rx_state = 1; cn->rx_got = 0;
-    }
-    if (cn->rx_state == 1) {
-      SliceHdr h; memcpy(&h, cn->rx_hdr, sizeof(h));
-      while (cn->rx_got < h.len) {
-        ssize_t k = read(cn->fd, cn->rx_pay + cn->rx_got, h.len - cn->rx_got);
-        if (k < 0) { if (errno == EAGAIN || errno == EWOULDBLOCK) return; MLOG_ERR("data read r%d: %s", cn->peer, strerror(errno)); return; }
-        if (k == 0) return;
-        cn->rx_got += k;
-      }
-      on_slice_arrived(c, h, cn->rx_pay, -1, cn->rx_slot);
-      cn->rx_state = 0; cn->rx_got = 0; cn->rx_slot = -1; cn->rx_pay = nullptr;
-    }
   }
 }
 
@@ -599,26 +473,26 @@ int net_blocking_exchange(Comm* c, int peer, const void* mine, void* remote, siz
 int net_poll(Comm* c) {
   int n = 0;
   if (c->verbs) n += verbs_poll(c);      // 数据面或 ctrl-only(O3)都要轮询
-  if (c->erpc) n += erpc_ctrl_poll(c);   // S0d:eRPC ctrl 事件循环(event 线程)
   if (c->use_nvsh) n += nvsh_poll(c);
-  // vNIC 下行的限速在**读 socket 之前**判定:不读 → TCP 接收窗口收紧 →
-  // 背压自然传到发送端,这就是链路级流控的忠实模拟(而不是收下来再丢)。
-  const bool data_ok = rx_gate(c, true);
   epoll_event evs[64];
   int k = epoll_wait(c->epfd, evs, 64, 0);
   for (int i = 0; i < k; i++) {
     Conn* cn = (Conn*)evs[i].data.ptr;
     if (evs[i].events & EPOLLIN) {
-      if (cn->is_data) { if (data_ok) handle_data_readable(c, cn); }
-      else handle_ctrl_readable(c, cn);
+      // data 连接(bootstrap 专用)在引导后不该再有字节 —— 有就是协议错乱。
+      // 必须吞掉(level-triggered epoll,不读会每圈重复触发)。
+      if (cn->is_data) {
+        uint8_t junk[4096];
+        ssize_t got = read(cn->fd, junk, sizeof(junk));
+        if (got > 0)
+          MLOG_ERR("E1030 bootstrap 连接(r%d)收到运行期数据 %zdB(已丢弃)", cn->peer, got);
+        continue;
+      }
+      handle_ctrl_readable(c, cn);
       n++;
     }
   }
-  // 没读完的 data 连接(上次因 staging 不足停在状态 2)要主动再试
   for (int p = 0; p < c->cfg.nranks; p++) {
-    Conn* cn = c->dconn[p];
-    if (cn && cn->rx_state != 0 && data_ok) { handle_data_readable(c, cn); n++; }
-    if (cn && !cn->wq_data.empty()) n += tcp_try_flush(c, p);
     Conn* ct = c->conn[p];
     if (ct) {
       std::lock_guard<std::mutex> lk(c->ctrl_mu);

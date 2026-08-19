@@ -1125,11 +1125,8 @@ static void coll_try_finish(Comm* c) {
   // 收满 = 本 rank 的 completion(makespan 由 mosaicStatsSync 取全局 max)。
   // 还要求自己的字节都已离开 sendbuf(D2H 完成),调用方才能安全复用发送缓冲。
   bool recv_done = c->dst.total_recv >= c->total_recv_expect;
-  // 必须把 TCP 发送队列也算进去:posted 只表示"已从 sendbuf 拷走",
-  // 队列里还压着没 writev 出去的 slice 时就宣布发完,进程一退出数据就丢了。
   bool send_done = c->posted_send >= c->total_send &&
-                   es->ready_nv.empty() && es->ready_nic.empty() && es->tx.empty() &&
-                   tcp_pending_all(c) == 0;
+                   es->ready_nv.empty() && es->ready_nic.empty() && es->tx.empty();
   if (!(recv_done && send_done)) return;
   // 零流档:交付走消费者核,完成还要求 kq 排干(纯内存判定)。
   if (c->kdesc_active && c->kdesc_consumed < c->kdesc_pushed) return;
@@ -1626,16 +1623,14 @@ static void pump_tx(Comm* c) {
       c->nic_tx_outstanding++;                    // 检测器 busy 判定用
       MTRACE(TE_SLICE_TX, ((uint32_t)h.src << 16) | h.dst, h.off,
              ((uint64_t)h.len << 8) | h.hop);     // D2H 已完成,这一刻才真正投出
-      if (c->use_verbs) {
-        // RDMA SEND:头写进槽首 HDR_STRIDE 区,一次 WR 发出;完成事件回收槽
-        if (verbs_post_slice(c, t.peer, h, stage_base2(c, t.stage_slot), t.stage_slot) != 0) {
-          MLOG_ERR("E1027 verbs 发送失败,该 slice 改走 TCP(r%d)", t.peer);
-          tcp_enqueue_slice(c, t.peer, h, p, t.stage_slot);
-          tcp_try_flush(c, t.peer);
-        }
-      } else {
-        tcp_enqueue_slice(c, t.peer, h, p, t.stage_slot);
-        tcp_try_flush(c, t.peer);
+      // RDMA SEND:头写进槽首 HDR_STRIDE 区,一次 WR 发出;完成事件回收槽。
+      // TCP 数据面已删(2026-08-19):发送失败 = 硬错(fail-fast,不静默降速)。
+      (void)p;
+      if (verbs_post_slice(c, t.peer, h, stage_base2(c, t.stage_slot), t.stage_slot) != 0) {
+        MLOG_ERR("E1027 verbs 发送失败(r%d)—— 数据面无回退,置错终止本 collective", t.peer);
+        c->err = "E1027 verbs 发送失败";
+        c->coll_state.store(3);
+        stage_release(c, t.stage_slot);
       }
     }
     if (t.relay_slot >= 0) c->relay_free.push_back(t.relay_slot);
@@ -1778,10 +1773,9 @@ void dump_state(Comm* c, const char* why) {
           (unsigned long long)c->posted_send, (unsigned long long)c->total_send,
           c->dst.wave_idx, (unsigned long long)c->dst.wave_bytes,
           (unsigned long long)c->dst.wave_delivered, c->pace_hot);
-  fprintf(f, "q nv=%zu nic=%zu tx=%zu rx=%zu waitrelay=%zu stage_free=%zu relay_free=%zu tcpq=%d\n",
+  fprintf(f, "q nv=%zu nic=%zu tx=%zu rx=%zu waitrelay=%zu stage_free=%zu relay_free=%zu\n",
           es->ready_nv.size(), es->ready_nic.size(), es->tx.size(), es->rx.size(),
-          es->wait_relay.size(), c->stage_free.size(), c->relay_free.size(),
-          tcp_pending_all(c));
+          es->wait_relay.size(), c->stage_free.size(), c->relay_free.size());
   for (int s = 0; s < c->cfg.nranks; s++) {
     if (s == c->cfg.rank) continue;
     // want = 权威收期望(调用方 rcounts,坑 #43);dmd = 收到的 demand 矩阵那格
@@ -1885,9 +1879,6 @@ static void watchdog(Comm* c) {
     o += snprintf(rb + o, sizeof(rb) - o, "%d:%llu/%llu%s ", p, (unsigned long long)got,
                   (unsigned long long)want, got == want ? "" : "*");
   }
-  o += snprintf(rb + o, sizeof(rb) - o, "| tcpq=%d rxst:", tcp_pending_all(c));
-  for (int p = 0; p < c->cfg.nranks && o < 480; p++)
-    if (c->dconn[p]) o += snprintf(rb + o, sizeof(rb) - o, "%d:%d ", p, tcp_rx_state(c, p));
   MLOG_ERR("E2002 watchdog 环状态: %s", rb);
 }
 
@@ -1983,11 +1974,6 @@ static void event_loop(Comm* c) {
   // cudaSetDevice 每线程生效:不设的话本线程落默认 dev0,与 app 线程选的卡
   // 不同 ⇒ ev_take 的 event 和 s_tx/stream_d2h 不同设备,eventRecord 全炸(R13)
   if (c->cfg.use_gpu) CUCHK(cudaSetDevice(c->cuda_dev), "setDevice(ev)");
-  // S0d:eRPC ctrl 必须在 event 线程建(Rpc 线程绑定);失败自动降级 TCP
-  if (c->ctrl_erpc && erpc_ctrl_setup(c) != 0) {
-    c->ctrl_erpc = false;
-    MLOG_WARN("E1032 MOSAIC_CTRL=erpc 初始化失败(无 ERPC=1 构建或建链失败),控制面留在 TCP");
-  }
   auto* es = ES(c);
   const int n = c->cfg.nranks;
   // 调试心跳(MOSAIC_LOG>=3):每秒报一次事件循环活着 + 所在阶段;
@@ -2150,7 +2136,6 @@ static void event_loop(Comm* c) {
     seg(9); watchdog(c);
     seg(0);
   }
-  if (c->erpc) erpc_ctrl_teardown(c);   // S0d:Rpc 与创建线程绑定,在此拆
 }
 
 // demand_got 的语义修正:广播计 1,自己那行不算,收齐 = n(自己 1 + 他人 n-1)
@@ -2347,37 +2332,36 @@ void engine_start(Comm* c) {
   for (int i = NST - 1; i >= 0; i--) c->stage_free.push_back(i);
   for (int i = NRE - 1; i >= 0; i--) c->relay_free.push_back(i);
 
-  // ── vNIC 数据面选择:MOSAIC_NIC=verbs(默认)| tcp。verbs 建链失败自动回退,
-  // 用哪条路进日志(基准表必须写明数据面口径)。
+  // ── 跨机数据面选择:MOSAIC_NIC=verbs(默认)| nvshmem(Raven;待收敛项,
+  // 见 File/debug-819/local-0819-transport-cleanup-plan.md §2)。
+  // TCP 数据面已删(2026-08-19):建链失败 = 硬错 fail-fast,不静默降速。
   {
     bool has_remote = false;
     for (int p = 0; p < c->cfg.nranks; p++)
       if (p != c->cfg.rank && !c->topo.same_host(c->cfg.rank, p)) { has_remote = true; break; }
     const char* nic = getenv("MOSAIC_NIC");
     const bool want_nvsh = nic && strcmp(nic, "nvshmem") == 0;
-    const bool want_verbs = !nic || !*nic || strcmp(nic, "verbs") == 0;
     if (has_remote && want_nvsh) {
       if (nvsh_setup(c) == 0) {
         c->use_nvsh = true;
-        MLOG_INFO("vNIC 数据面 = NVSHMEM(put+signal)");
+        MLOG_INFO("跨机数据面 = NVSHMEM(put+signal)");
       } else {
-        MLOG_WARN("E5016 NVSHMEM 建链失败,回退 TCP 数据面");
         nvsh_teardown(c);
-      }
-    } else if (has_remote && want_verbs) {
-      if (verbs_setup(c) == 0) {
-        c->use_verbs = true;
-        MLOG_INFO("vNIC 数据面 = RoCE RDMA(verbs)");
-      } else {
-        MLOG_WARN("E1028 verbs 建链失败,回退 TCP 数据面");
-        verbs_teardown(c);
+        MLOG_ERR("E5016 NVSHMEM 建链失败(数据面无 TCP 回退,硬错)");
+        c->err = "E5016 NVSHMEM 建链失败";
+        return;
       }
     } else if (has_remote) {
-      MLOG_INFO("vNIC 数据面 = TCP(MOSAIC_NIC=tcp)");
+      if (verbs_setup(c) == 0) {
+        c->use_verbs = true;
+        MLOG_INFO("跨机数据面 = RDMA verbs");
+      } else {
+        verbs_teardown(c);
+        MLOG_ERR("E1028 verbs 建链失败(数据面无 TCP 回退,硬错)");
+        c->err = "E1028 verbs 建链失败";
+        return;
+      }
     }
-    // S0d:控制面走 eRPC(实体在 event 线程初始化 —— Rpc 线程绑定)
-    const char* ce0 = getenv("MOSAIC_CTRL");
-    if (has_remote && ce0 && strcmp(ce0, "erpc") == 0) c->ctrl_erpc = true;
     // O3:控制面走 RDMA(小报文 SEND,专用注册槽池;无槽/超长自动回退 TCP)。
     // 数据面 = nvshmem 时也可开:verbs_setup 独立建 QP,只为控制面服务。
     const char* ce = getenv("MOSAIC_CTRL");

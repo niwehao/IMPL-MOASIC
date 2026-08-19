@@ -15,7 +15,7 @@ CXXFLAGS  := -O2 -g -std=c++17 -msse4.2 -Wall -Wno-unused-variable -Wno-unused-b
 LDFLAGS   := -L$(CUDA_ROOT)/lib64 -lcudart -libverbs -lrt -lpthread -Wl,-rpath,$(CUDA_ROOT)/lib64
 
 SRC   := src/util.cc src/topo.cc src/net.cc src/engine.cc src/fast_sched.cc src/verbs.cc src/nvshmem_pipe.cc \
-         src/fast_native.cc src/api.cc src/erpc_ctrl.cc
+         src/fast_native.cc src/api.cc
 OBJ   := $(SRC:.cc=.o)
 BUILD := build
 .DEFAULT_GOAL := all   # 下面的 FAST 规则写在 all 之前,必须显式钉住默认目标
@@ -87,49 +87,3 @@ CXXFLAGS += -DMOSAIC_HAVE_NVSHMEM -I$(NVSHMEM_ROOT)/include
 LDFLAGS  += $(NVSHMEM_ROOT)/lib/libnvshmem_host.so.3 -lcudart -ldl -Wl,-rpath,$(NVSHMEM_ROOT)/lib
 endif
 
-# ── eRPC 控制面(S0d,可选;源码 = 根目录 Code/eRPC,补丁见
-# common/raven/patches/erpc_raven.patch)。与 NVSHMEM 同款自动档:目录在
-# 且有 libnuma 头就编入(防两机构建面分叉,log.md 坑 #21 教训);
-# 运行时仍要 MOSAIC_CTRL=erpc 才启用。transport 固定 infiniband,
-# RoCE 与否按本机 HCA link_layer 自动判(本机 100GbE RoCE / Raven IB HDR)。
-ERPC_DIR ?= $(shell test -f $(abspath ../../Code/eRPC)/src/rpc.h && echo $(abspath ../../Code/eRPC) || echo $(HOME)/Code/eRPC)
-ERPC ?= $(shell test -f $(ERPC_DIR)/src/rpc.h -a -f /usr/include/numa.h && echo 1 || echo 0)
-ifeq ($(ERPC),1)
-ERPC_CONFIG := $(BUILD)/erpc_config
-ERPC_ROCE ?= $(shell grep -q InfiniBand /sys/class/infiniband/*/ports/*/link_layer 2>/dev/null && echo 0 || echo 1)
-ifeq ($(ERPC_ROCE),1)
-ERPC_HEADROOM := 40
-ERPC_ISROCE := true
-else
-ERPC_HEADROOM := 0
-ERPC_ISROCE := false
-endif
-ERPC_DEFS := -DERPC_INFINIBAND=true -DERPC_LOG_LEVEL=2 -DERPC_TESTING=false
-CXXFLAGS += -DMOSAIC_HAVE_ERPC $(ERPC_DEFS) -I$(ERPC_DIR)/src -I$(ERPC_DIR)/third_party/asio/include -I$(ERPC_CONFIG)
-LDFLAGS  += -lnuma
-ERPC_SRCS := nexus_impl/nexus nexus_impl/nexus_bg_thread nexus_impl/nexus_sm_thread \
-             rpc_impl/rpc rpc_impl/rpc_queues rpc_impl/rpc_rfr rpc_impl/rpc_cr \
-             rpc_impl/rpc_kick rpc_impl/rpc_req rpc_impl/rpc_resp rpc_impl/rpc_ev_loop \
-             rpc_impl/rpc_fault_inject rpc_impl/rpc_pkt_loss rpc_impl/rpc_rx \
-             rpc_impl/rpc_connect_handlers rpc_impl/rpc_disconnect_handlers \
-             rpc_impl/rpc_reset_handlers rpc_impl/rpc_sm_api rpc_impl/rpc_sm_helpers \
-             transport_impl/transport transport_impl/infiniband/ib_transport \
-             transport_impl/infiniband/ib_transport_datapath \
-             util/huge_alloc util/numautils util/tls_registry
-ERPC_OBJ := $(addprefix $(BUILD)/erpc/,$(addsuffix .o,$(ERPC_SRCS)))
-
-$(ERPC_CONFIG)/config.h: | $(BUILD)
-	@mkdir -p $(ERPC_CONFIG)
-	@printf '#pragma once\n#include <stdlib.h>\nnamespace erpc {\nclass IBTransport;\nclass RawTransport;\nclass DpdkTransport;\nclass FakeTransport;\n#define CTransport IBTransport\nstatic constexpr size_t kHeadroom = $(ERPC_HEADROOM);\nstatic constexpr size_t kIsRoCE = $(ERPC_ISROCE);\nstatic constexpr size_t kIsAzure = false;\n}\n' > $@
-
-$(BUILD)/erpc/%.o: $(ERPC_DIR)/src/%.cc $(ERPC_CONFIG)/config.h | $(BUILD)
-	@mkdir -p $(dir $@)
-	$(CXX) -O2 -g -std=c++17 -w -fPIC -MMD -MP $(ERPC_DEFS) -I$(ERPC_DIR)/src -I$(ERPC_DIR)/third_party/asio/include -I$(ERPC_CONFIG) -c $< -o $@
-
-src/erpc_ctrl.o: $(ERPC_CONFIG)/config.h
-# 注:libmosaic.so 的前置依赖在规则行是立即展开的,这里追加依赖 + OBJ
-# (链接 recipe 里的 $(OBJ) 是延迟展开,能看到追加后的值)
-OBJ += $(ERPC_OBJ)
-$(BUILD)/libmosaic.so: $(ERPC_OBJ)
--include $(ERPC_OBJ:.o=.d)
-endif

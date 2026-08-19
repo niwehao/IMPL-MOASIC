@@ -82,6 +82,13 @@ extern "C" mosaicResult_t mosaicCommInit(mosaicComm_t* out, const mosaicConfig_t
 
   if (net_setup(c) != 0) { c->err = "E1001 建链失败"; delete c; return mosaicErrTransport; }
   engine_start(c);
+  if (!c->err.empty()) {          // 数据面建链硬错(无 TCP 回退,fail-fast)
+    MLOG_ERR("CommInit 失败:%s", c->err.c_str());
+    engine_stop(c);
+    net_teardown(c);
+    delete c;
+    return mosaicErrTransport;
+  }
   MLOG_INFO("comm 就绪:rank %d/%d sched=%s C=%d W=%d nv=%.1fG nic=%.1fG slice=%dB",
             cfg->rank, cfg->nranks, mosaicSchedName(cfg->sched), cfg->corridors,
             cfg->waves, cfg->nv_gbps, cfg->nic_gbps, cfg->slice_bytes);
