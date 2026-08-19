@@ -149,16 +149,23 @@ extern "C" __global__ void mosaic_consume(u64 ring_a, u64 ctr_a, u64 prog_a,
     __syncthreads();
     if (s_state == 1) break;
     const u64 len = s_desc[2];
-    // 条带划分:block j 拷 [j*chunk, min(len,(j+1)*chunk));chunk 8B 对齐,
-    // 使各条带首地址相对 8B 网格不漂移
-    const u64 chunk = ((len + gridDim.x - 1) / gridDim.x + 7) & ~7ull;
+    // 条带划分:block j 拷 [j*chunk, min(len,(j+1)*chunk));chunk 16B 对齐,
+    // 使各条带首地址相对 16B 网格不漂移(向量宽度)
+    const u64 chunk = ((len + gridDim.x - 1) / gridDim.x + 15) & ~15ull;
     const u64 lo = (u64)blockIdx.x * chunk;
     const u64 hi = lo + chunk < len ? lo + chunk : len;
     if (lo < len) {
       const unsigned char* src = (const unsigned char*)s_desc[0] + lo;
       unsigned char* dst = (unsigned char*)s_desc[1] + lo;
       const u64 n = hi - lo;
-      if ((((u64)src | (u64)dst) & 7) == 0) {
+      if ((((u64)src | (u64)dst) & 15) == 0) {           // 16B 向量拷贝
+        const u64 n16 = n >> 4;
+        const ulonglong2* s2 = (const ulonglong2*)src;
+        ulonglong2* d2 = (ulonglong2*)dst;
+        for (u64 k = threadIdx.x; k < n16; k += blockDim.x) d2[k] = s2[k];
+        for (u64 k = (n16 << 4) + threadIdx.x; k < n; k += blockDim.x)
+          dst[k] = src[k];
+      } else if ((((u64)src | (u64)dst) & 7) == 0) {
         const u64 n8 = n >> 3;
         for (u64 k = threadIdx.x; k < n8; k += blockDim.x)
           ((u64*)dst)[k] = ((const u64*)src)[k];
