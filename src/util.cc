@@ -18,6 +18,7 @@ int g_rank_for_log = -1;
 
 // ── 二进制 trace ring(06 §5.2)。单写者(event 线程),mmap 即持久。
 bool g_trace_on = false;
+bool g_trace_loop = false;
 static TraceRec* g_trace = nullptr;
 static uint64_t* g_trace_cur = nullptr;    // 文件头 8B = 写游标
 static uint32_t g_trace_cap = 0;
@@ -25,6 +26,7 @@ static uint32_t g_trace_cap = 0;
 void mtrace_init(int rank) {
   const char* e = getenv("MOSAIC_TRACE");
   if (!e || atoi(e) == 0) return;
+  g_trace_loop = atoi(e) >= 2;
   const char* dir = getenv("MOSAIC_TRACE_DIR");
   char path[512];
   snprintf(path, sizeof(path), "%s/mosaic_rank%d.trace", dir && *dir ? dir : "/tmp", rank);

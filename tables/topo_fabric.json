@@ -1,0 +1,25 @@
+{
+  "comment": "Raven IB 胖树结构(scontrol show topology,2026-08-15 —— SLURM 拓扑插件已配置,探测第 0 层一步到位;原始全表 topo_fabric_raw.txt)",
+  "structure": "2 级:12 个 GPU 叶交换机(ravil101-112,各 ~20 节点)→ 单 spine 组 ravis1",
+  "gpu_leaves": {
+    "ravil101": "ravg[1001-1020]",
+    "ravil102": "ravg[1021-1028,1031-1034]",
+    "ravil103": "ravg[1037-1056]",
+    "ravil104": "ravg[1057-1064,1067-1070]",
+    "ravil105": "ravg[1073-1092]",
+    "ravil106": "ravg[1093-1100,1103-1106]",
+    "ravil107": "ravg[1109-1128]",
+    "ravil108": "ravg[1129-1136,1139-1142]",
+    "ravil109": "ravg[1145-1164]",
+    "ravil110": "ravg[1165-1172,1175-1178]",
+    "ravil111": "ravg[1181-1200]",
+    "ravil112": "ravg[1201-1208,1211-1214]"
+  },
+  "spine": "ravis1 覆盖全部 GPU 叶(单层胖树;发端不可选 spine ⇒ spineagg 兜底档语义成立)",
+  "downstream": [
+    "hw_bounds 割下界可加\"每叶上行聚合\"割(节点→叶映射即割集定义)",
+    "spineagg 账可按叶细化(共叶流量不记 spine);触发条件 = 大规模跨叶作业",
+    "作业内叶归属:scontrol show hostnames + 本表查询即可,零探测成本"
+  ],
+  "observed_2026_08_15": "占位 29346066 的 8 节点横跨 2 叶(ravil102×2 + ravil112×6)—— 跨叶流量真实存在,32 GPU 出数已含 spine 穿越"
+}

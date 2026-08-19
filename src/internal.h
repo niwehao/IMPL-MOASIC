@@ -137,6 +137,14 @@ enum TraceEv : uint16_t {
   TE_STAGGER = 6,     // a=wave, b=wait_us
   TE_DET = 7,         // a=which(0↑1↓), b=locked, c=rate_mbps
   TE_DUMP = 8,        // 状态转储标记
+  // ── 单片生命周期插桩(local-0819;全部在 MTRACE 门控内,默认路径逐字节不变)
+  TE_SLICE_TX = 9,     // src:D2H 完成、RDMA WR 实投  a=(src<<16|dst), b=off, c=len<<8|hop
+  TE_SLICE_RECV = 10,  // dst:recv CQ 命中(片到达)  同上
+  TE_TXDONE = 11,      // src:send CQ 完成、staging 槽回收  同上
+  TE_REPOST = 12,      // dst:补投 recv WR = 放 credit  同上
+  TE_COLL_BEGIN = 13,  // a=coll_id, b=total_send, c=total_recv_expect
+  TE_COLL_END = 14,    // a=coll_id, b=total_recv
+  TE_LOOP = 15,        // 事件循环一圈  b=上一圈耗时 ns(仅 MOSAIC_TRACE>=2)
 };
 #pragma pack(push, 1)
 struct TraceRec { uint64_t t_ns; uint16_t ev; uint16_t rank; uint32_t a; uint64_t b, c; };
@@ -145,6 +153,7 @@ static_assert(sizeof(TraceRec) == 32, "TraceRec 必须 32 字节");
 void mtrace_init(int rank);
 void mtrace(uint16_t ev, uint32_t a, uint64_t b, uint64_t c);
 extern bool g_trace_on;
+extern bool g_trace_loop;   // MOSAIC_TRACE>=2:逐圈事件循环打点(量很大,单独开)
 #define MTRACE(ev, a, b, c) do { if (::mosaic::g_trace_on) ::mosaic::mtrace(ev, a, b, c); } while (0)
 
 // 状态转储(watchdog / SIGTERM;06 §5.3「卡死必留尸检」)
@@ -391,24 +400,10 @@ struct Comm {
   // 按 g_ev_phase 编号记单次最大耗时;demand 块入口快照+清零,PHASE 行报 argmax
   uint64_t ev_seg_max[16] = {0};
   uint64_t ev_seg_snap[16] = {0};
-  // S3 异步提交(sota_plan 2026-08-16):完成标志 = 4B 锁页映射内存。
-  // event 线程在 coll 收尾时写 coll_id(release);调用方流上
-  // cuStreamWaitValue32(GEQ) 轮询设备侧地址 —— GPU 等数据,host 不等。
-  void* done_flag_host = nullptr;   // uint32_t*(cudaHostAllocMapped)
-  uint64_t done_flag_dev = 0;       // 同一块内存的设备侧地址
-  bool async_cap = false;           // 平台支持(memops + 映射内存)才真异步
-  // 坑 #46:异步档才开的"对端已进入本 collective 才发数据"门。**不能拿
-  // async_cap 判**(那是平台能力,支持的机器上恒真,会把默认档一起改掉)。
-  bool async_gate_peers = false;    // = MOSAIC_TORCH_ASYNC 且未被 =0 关掉
-  // memops 绝不能排在调用方流上:legacy 默认流(0x1)上的 waitValue 会把
-  // 设备调度整个冻住(本机 L40S 实测死锁)。门流(非阻塞)专门吃 waitValue,
-  // 调用方流只 cudaStreamWaitEvent 门事件 —— 标准间接门。
-  void* stream_gate = nullptr;      // 专用门流
-  void* gate_ev = nullptr;          // 门事件(每次 Begin 重录)
-  void* gate_mod = nullptr;         // 自旋核 CUmodule(PTX JIT)
-  void* gate_fn = nullptr;          // 自旋核 CUfunction(一期,已由消费者核取代)
-  // S3 二期方案 N:GPU 消费者内核 —— host 只写 pinned 描述符,交付拷贝与
-  // 完成判定全在设备(契约见 consumer_kernel.cu)。async_cap 现在要求它就绪。
+  // 零流数据面能力(MOSAIC_ZEROSTREAM;(b) 异步提交语义已删,2026-08-19)
+  bool zs_cap = false;              // 消费者核资源就绪才可挂零流
+  // S3 方案 N:GPU 消费者内核 —— host 只写 pinned 描述符,交付拷贝与
+  // 完成判定全在设备(契约见 consumer_kernel.cu)。
   struct KDesc { uint64_t src, dst, len, pad; };
   struct KMap { const uint8_t* host; uint64_t dev; size_t size; };
   KDesc* kdesc_ring = nullptr;      // 描述符环(pinned mapped,host 写)
@@ -425,10 +420,7 @@ struct Comm {
   void* stream_cons = nullptr;      // 消费者核专用流(门在 caller 流上的 host 回调)
   uint64_t kdesc_gen = 0;           // 代际号(每 coll +1;核见变即退,坑 #36)
   bool kdesc_active = false;        // 本次 collective 走消费者内核交付
-  bool self_copy_pending = false;   // 坑 #51:自拷贝等 input_ready 后再交核
-  bool async_armed = false;         // Begin:消费者核已成功挂上(失败退回阻塞)
-  // S3 二期(异步窗口零流操作):镜像核 —— 门等待未决期间流上操作被驱动
-  // 楔死(Raven 实测 s_poll/s_tx 集体冻结),nvsh 镜像改由设备核直读直写
+  // 零流镜像核:nvsh 的 sig/hdr/credit 由设备核直读直写 shadow
   void* kmirror_fn = nullptr;       // mosaic_mirror CUfunction(同一 module)
   void* kflag_fn = nullptr;         // mosaic_flagset CUfunction(input 就绪标志)
   void* stream_mirror = nullptr;    // 镜像核专用流(只装常驻核,无其他 op)

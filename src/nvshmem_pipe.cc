@@ -43,22 +43,15 @@ static int nvsh_slots() {
   return e && *e ? atoi(e) : 16;
 }
 
-// 是否**真的**在异步档跑。注意不能用 c->async_cap 判 —— 那是**平台能力**,
-// 在支持的机器上恒为真,拿它做分支会把默认档一起改掉(违反"默认=旧行为")。
-static bool s3_async_mode() {
-  static const char* e = getenv("MOSAIC_TORCH_ASYNC");
-  return e && atoi(e) != 0;
-}
 // **零流数据面**(host-API 发送 + 镜像核 + 消费者核)是否启用。
-// 两条路都算:MOSAIC_TORCH_ASYNC = (a)+(b);MOSAIC_ZEROSTREAM = 只要 (a)。
-// 下面几处纪律(staging 槽加深、**不注册 torch 缓冲**)绑的是 (a) 这条
-// 数据面,与异步语义无关 —— 只绑 async 是我的错(实测 loss 漂移,见下)。
+// ((b) 异步提交语义已删,2026-08-19;这里只剩 MOSAIC_ZEROSTREAM 一个入口。)
+// 下面几处纪律(staging 槽加深、**不注册 torch 缓冲**)绑的是这条数据面。
 static bool s3_zerostream_mode() {
   static const bool v = [] {
     const char* z = getenv("MOSAIC_ZEROSTREAM");
     return (z && atoi(z) != 0);
   }();
-  return v || s3_async_mode();
+  return v;
 }
 
 // uid 同机分发用的 /dev/shm 段名(见 nvsh_setup 的 R13 注释)
@@ -292,8 +285,8 @@ int nvsh_setup(Comm* c) {
   memset(v->sig_shadow, 0, (size_t)n * v->nslots * sizeof(uint64_t));
   memset(v->credit_shadow, 0, n * sizeof(uint64_t));
   v->sig_seen.assign((size_t)n * v->nslots, 0);
-  // S3 二期:host-API 发送的头源池(RDMA 源必须注册 —— 坑 #21;pinned + 注册)
-  if (c->async_cap) {
+  // 零流档:host-API 发送的头源池(RDMA 源必须注册 —— 坑 #21;pinned + 注册)
+  if (c->zs_cap) {
     const int NHH = 256;
     MLOG_INFO("S3 头池注册开始(%d 槽)", NHH);
     if (cudaHostAlloc(&v->hhdr_pool, (size_t)NHH * HDR_STRIDE,
@@ -383,26 +376,24 @@ void nvsh_wait_input(Comm* c, void* ev) {
 // O5:登记/注册本次 collective 的 sendbuf 区间(命中缓存则零成本)
 void nvsh_note_sendbuf(Comm* c, const void* base, size_t bytes) {
   NvshCtx* v = NC(c);
-  // async_cap:S3 host-API 发送也要 sendbuf 注册(zcopy 同一套缓存/回退)
-  if (!v || (!v->zcopy && !c->async_cap) || !base || !bytes) return;
+  // zs_cap:零流 host-API 发送也要 sendbuf 注册(zcopy 同一套缓存/回退)
+  if (!v || (!v->zcopy && !c->zs_cap) || !base || !bytes) return;
   // 坑 #45:**异步档默认不注册 torch 缓冲**。注册是按地址区间缓存的,而 torch 的
   // caching allocator 会回收 / 重映射这些段 —— 缓存说"已注册"、MR 其实指向已失效
   // 的页 ⇒ `ibv_poll_cq completion status: 4 (local protection error)`,QP 进错误
   // 态、后续 WR 全 flushed、NVSHMEM 在 quiet 里报错并把进程带走(29355321-185921
   // 实测:8 个 rank 无声消失,其余全体等它们 = 看起来像调度死锁)。
-  // 同步档不受影响:collective 返回前必然读完 sendbuf,窗口内 torch 不会动它。
-  // 异步档把 payload 先经消费者核拷进对称堆(天生永久注册)再发,多一次 D2D,
-  // 换掉一整类"生命期跨出调用"的内存风险。=0 可退回注册路径(仅诊断用)。
-  static const char* nr = getenv("MOSAIC_S3_NOREG");
+  // 零流档把 payload 先经消费者核拷进对称堆(天生永久注册)再发,多一次 D2D,
+  // 换掉一整类"生命期跨出调用"的内存风险。
   // **坑 #50**:零流档下"源已注册"会让 host-API 直接以 sendbuf 为 put 源
   // (`putmem_nbi(rdst, gpu_src, …)`,非阻塞)。而 posted_send 在入队即记账、
   // 完成判据里又没有"nvsh 在途已 quiet",于是 collective 可能在**网卡还在
   // DMA 读 sendbuf** 时就宣布完成 ⇒ torch 立刻复用那块内存 ⇒ 发出去的是脏
   // 数据。现象:2-PE bit-exact 与单发 drop-in 都过,**只有连续多迭代的训练
   // loss 慢慢漂**(本机 9.086837 → 9.103096)。
-  // 解法与异步档同源(坑 #45):零流档一律不注册,全部经对称堆 staging 转发
+  // 解法(坑 #45 同源):零流档一律不注册,全部经对称堆 staging 转发
   // —— 源变成对称堆槽,sendbuf 早在消费者核拷贝时就读完了,复用安全。
-  if (s3_zerostream_mode() && (!nr || atoi(nr) != 0)) return;
+  if (s3_zerostream_mode()) return;
   if (nvsh_src_registered(v, base, bytes)) return;
   for (auto& r : v->reg_fail)
     if (r.first == base && r.second == bytes) return;      // 已知注册不动这块

@@ -16,11 +16,13 @@
       单点替换 megatron.core.tensor_parallel.mappings 的 all_to_all 原语
       (符号断言 fail-fast,E4xxx;DP allreduce 等全部留在 NCCL,不受污染)。
 
-流语义(File/log_raven.md §6 D11):默认(MOSAIC_ASYNC_SUBMIT=1)提交时在
-torch 当前流上录一个"输入就绪"事件交给引擎,引擎的拷贝流 WaitEvent 它 ——
-CPU 协议(demand 交换/注水/通道 B)与调用方流上的尾部计算重叠,无 host 同步。
-MOSAIC_ASYNC_SUBMIT=0 退回旧保守口径(提交前 torch.cuda.synchronize)。
-调用整体仍是阻塞语义(返回 = 输出已就绪),MoE dispatcher 语义等价。
+流语义(File/log_raven.md §6 D11):提交时在 torch 当前流上录一个"输入就绪"
+事件交给引擎,引擎的拷贝流 WaitEvent 它 —— CPU 协议(demand 交换/注水/通道 B)
+与调用方流上的尾部计算重叠,无 host 同步。
+调用整体是阻塞语义(返回 = 输出已就绪),MoE dispatcher 语义等价。
+**每轮 A2A 结束必有同步是硬不变量**:异步提交语义(旧 MOSAIC_TORCH_ASYNC)
+已删除 —— 多代同飞在协议上无法区分不同轮的 token(坑 #41-#48 一整类),
+判死刑见 2026-08-19 清理(File/debug-819/local-0819-transport-cleanup-plan.md)。
 """
 import os
 
@@ -73,9 +75,6 @@ def backend():
 def destroy():
     global _COMM
     if _COMM is not None:
-        if _inflight:
-            _COMM.wait()          # S3:在途收尾后再放引用
-            _inflight.clear()
         _COMM.close()
         _COMM = None
 
@@ -96,19 +95,10 @@ def _splits_bytes(t, splits, world):
     return counts, displs
 
 
-# ── 2026-08-15 优化批旋钮(与 libmosaic 侧同名 env;File/log_raven.md §6)
-# O1 异步提交:默认开。提交时在 torch 当前流上录事件交给引擎(device 侧依赖),
-# 不再 torch.cuda.synchronize() —— CPU 协议与调用方流上的尾部计算重叠。
-_ASYNC = os.environ.get("MOSAIC_ASYNC_SUBMIT", "1") != "0"
-# O2 demand hint:默认 auto。相邻两次调用的 token 矩阵结构相同(probs)或互为
+# ── O2 demand hint:默认 auto。相邻两次调用的 token 矩阵结构相同(probs)或互为
 # 转置(combine / autograd backward)时,引擎从上次全局矩阵恒等推导,免 allgather。
 _HINT = int(os.environ.get("MOSAIC_DEMAND_HINT", "1") or "1")
 _prev_call = {"sc": None, "rc": None, "rb": 0}
-# S3 异步提交(MOSAIC_TORCH_ASYNC=1,默认关=旧阻塞语义):Begin 立即返回,
-# 数据就绪由调用方流上的设备侧等待兜住;两侧张量引用持到下一次调用
-# (引擎一次一笔,下一次 Begin 内部隐式收尾上一笔 ⇒ 届时引用可放)。
-_ASYNC_A2A = os.environ.get("MOSAIC_TORCH_ASYNC", "0") == "1"
-_inflight = []   # [(input, output)] 在途张量保活
 
 
 def _row_bytes(t):
@@ -158,23 +148,15 @@ def all_to_all_single(output, input, output_split_sizes=None,
     _prev_call.update(sc=sc, rc=rc, rb=rb)
     stream = 0
     if input.is_cuda:
-        if _ASYNC:
-            stream = torch.cuda.current_stream().cuda_stream   # O1:事件交引擎
-            # 默认流的句柄是 0,与 C API"未提供流"的哨兵撞了 —— 撞上时传
-            # cudaStreamLegacy(0x1,CUDA 原生的默认流显式句柄)。不处理的话
-            # 引擎既不录事件也无人同步,input 未就绪就被读走(实测:训练 loss
-            # 发散而 drop-in 单测因自带 synchronize 侥幸全绿)。
-            if stream == 0:
-                stream = 1
-        else:
-            torch.cuda.synchronize()   # 旧语义(保守口径,见文件头)
-    use_begin = _ASYNC_A2A and stream != 0
+        stream = torch.cuda.current_stream().cuda_stream   # O1:事件交引擎
+        # 默认流的句柄是 0,与 C API"未提供流"的哨兵撞了 —— 撞上时传
+        # cudaStreamLegacy(0x1,CUDA 原生的默认流显式句柄)。不处理的话
+        # 引擎既不录事件也无人同步,input 未就绪就被读走(实测:训练 loss
+        # 发散而 drop-in 单测因自带 synchronize 侥幸全绿)。
+        if stream == 0:
+            stream = 1
     c.alltoallv(input.data_ptr(), sc, sd, output.data_ptr(), rc, rd,
-                stream=stream, demand_mode=mode, row_bytes=rb, begin=use_begin)
-    if use_begin:
-        # 上一笔已被引擎隐式收尾(一次一笔)⇒ 旧引用可放;换成本笔的
-        _inflight.clear()
-        _inflight.append((input, output))
+                stream=stream, demand_mode=mode, row_bytes=rb)
     return None
 
 

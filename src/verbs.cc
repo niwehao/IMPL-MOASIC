@@ -344,6 +344,8 @@ int verbs_poll(Comm* c) {
              sizeof(h));
       if (c->nic_tx_outstanding > 0) c->nic_tx_outstanding--;
       det_feed(c, 0, h.len);
+      MTRACE(TE_TXDONE, ((uint32_t)h.src << 16) | h.dst, h.off,
+             ((uint64_t)h.len << 8) | h.hop);     // 发送完成(含对端 ack)
     }
     stage_release(c, slot);               // 发送完成 → staging 槽可回收
     done++;
@@ -392,6 +394,8 @@ int verbs_poll(Comm* c) {
     v->peer[peer].posted--;
     SliceHdr h;
     memcpy(&h, slot, sizeof(h));
+    MTRACE(TE_SLICE_RECV, ((uint32_t)h.src << 16) | h.dst, h.off,
+           ((uint64_t)h.len << 8) | h.hop);       // CQ 命中 = 片到达 dst
     // 中转但中转池空:与 pump_shm 同款的队头处理 —— 扣着槽交给 wait_relay
     // (on_slice_arrived 内部处理),槽在 H2D 完成后由 verbs_repost 归还
     on_slice_arrived(c, h, slot + HDR_STRIDE, -1, -1, (peer << 20) | idx);

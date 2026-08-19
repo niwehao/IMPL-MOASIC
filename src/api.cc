@@ -92,10 +92,12 @@ extern "C" mosaicResult_t mosaicCommInit(mosaicComm_t* out, const mosaicConfig_t
   return mosaicSuccess;
 }
 
+static mosaicResult_t wait_coll(Comm* c);
+
 extern "C" mosaicResult_t mosaicCommDestroy(mosaicComm_t comm) {
   Comm* c = (Comm*)comm;
   if (!c) return mosaicErrConfig;
-  if (c->coll_state.load() != 0) mosaicAlltoallvEnd(comm);   // S3:在途必收尾
+  if (c->coll_state.load() != 0) wait_coll(c);   // 在途必收尾(防御,正常恒空)
   engine_stop(c);
   net_teardown(c);
   if (c->input_ev) cudaEventDestroy((cudaEvent_t)c->input_ev);
@@ -103,8 +105,7 @@ extern "C" mosaicResult_t mosaicCommDestroy(mosaicComm_t comm) {
   return mosaicSuccess;
 }
 
-// S3:等上一笔 collective 收尾(阻塞腿;GPU 腿是 caller_stream 上的 waitValue)。
-// 返回值 = 上一笔的结果;无在途 collective 时直接成功。
+// 等本笔 collective 收尾(阻塞语义:每轮 A2A 结束必有同步,硬不变量)。
 static mosaicResult_t wait_coll(Comm* c) {
   const uint64_t t_deadline = now_ns() + 120ull * 1000000000ull;
   for (;;) {
@@ -112,17 +113,13 @@ static mosaicResult_t wait_coll(Comm* c) {
     if (s == 0) return mosaicSuccess;             // 无在途
     if (s == 2) break;
     if (s == 3) {                                 // E4005:demand hint 失配
-      // S3:错误路径也要放行门(消费者核 + 旧自旋核两条腿),否则 GPU 侧悬死
+      // 错误路径也要给零流档的常驻核发停机信号,否则核悬死、下次 cudaFree 卡住
       kdesc_release_gate(c);
-      if (c->done_flag_host)
-        __atomic_store_n((uint32_t*)c->done_flag_host, (uint32_t)c->coll_id, __ATOMIC_RELEASE);
       c->coll_state.store(0);
       return mosaicErrConfig;
     }
     if (now_ns() > t_deadline) {
-      kdesc_release_gate(c);   // 同上:超时也放行门
-      if (c->done_flag_host)
-        __atomic_store_n((uint32_t*)c->done_flag_host, (uint32_t)c->coll_id, __ATOMIC_RELEASE);
+      kdesc_release_gate(c);   // 同上:超时也要停核
       c->err = "E2002 collective 超时(120s)";
       MLOG_ERR("%s:recv %llu/%llu send %llu/%llu", c->err.c_str(),
                (unsigned long long)c->dst.total_recv, (unsigned long long)c->total_recv_expect,
@@ -137,11 +134,11 @@ static mosaicResult_t wait_coll(Comm* c) {
 }
 
 namespace mosaic {
-bool async_enqueue_wait(Comm* c, void* stream, uint32_t want, bool arm_gate);
+bool zerostream_arm(Comm* c);
 
 // S3(a):同步档启用**零流执行**(host-API 发送 + 设备侧镜像核发现 + 消费者核
-// 交付)。默认关 = 旧行为。与 MOSAIC_TORCH_ASYNC 正交:那个开的是 (b) 异步
-// 提交语义(多代同飞,坑 #41-#48 的来源),这个只开 (a) 数据面。
+// 交付)。默认关 = 旧行为。(b) 异步提交语义已于 2026-08-19 删除
+// (坑 #41-#48 一整类;File/debug-819/local-0819-transport-cleanup-plan.md)。
 static bool zerostream_on() {
   static const int v = [] {
     const char* e = getenv("MOSAIC_ZEROSTREAM");
@@ -152,15 +149,13 @@ static bool zerostream_on() {
 bool async_mark_input(Comm* c, void* stream);
 }
 
-// 提交(公共体)。async=true 时在 caller_stream 上排设备侧完成等待并立即返回;
-// 平台不支持(async_cap=false)则由调用方(Begin)退回阻塞。
+// 提交(公共体)。阻塞语义:调用方随后经 wait_coll 等收尾。
 static mosaicResult_t submit_coll(Comm* c,
                                   const void* sendbuf, const size_t scounts[], const size_t sdispls[],
                                   void* recvbuf, const size_t rcounts[], const size_t rdispls[],
-                                  uint64_t caller_stream, int demand_mode, uint64_t row_bytes,
-                                  bool async) {
+                                  uint64_t caller_stream, int demand_mode, uint64_t row_bytes) {
   const int n = c->cfg.nranks;
-  MLOG_DBG("submit 进入(下一 coll=%d async=%d)", c->coll_id + 1, (int)async);
+  MLOG_DBG("submit 进入(下一 coll=%d)", c->coll_id + 1);
   {
     std::lock_guard<std::mutex> lk(c->mu);
     c->sendbuf = sendbuf; c->recvbuf = recvbuf;
@@ -202,49 +197,26 @@ static mosaicResult_t submit_coll(Comm* c,
         if (c->use_nvsh) nvsh_wait_input(c, c->input_ev);
       }
     }
-    // S3:GPU 腿 —— caller 流上排"等完成标志 ≥ 本次 coll_id"。必须在提交路径
-    // (拿着 mu、coll_id 已定)排队,保证与 input_ev 的相对流序确定。
-    // MOSAIC_ASYNC_NOGATE=1:诊断档,跳过设备侧门(允许竞争,只查冻结归因)
-    // NOGATE 诊断档:kdesc/常驻核全套照常,只跳过 caller 流上的门
-    //(允许竞争;engine.cc 依 env 在 async_enqueue_wait 内跳门)
-    c->async_armed = false;
-    if (async && caller_stream && c->cfg.use_gpu && c->kdesc_ctr) {
-      // S3 二期:常驻核协议(stop 只在 teardown 写,这里不碰)。
-      // 失败 → 不设 armed,Begin 退回阻塞语义;已启动的常驻核照常驻留无害。
-      c->input_ready = false;
-      MLOG_DBG("S3 mark_input 前(coll=%d)", c->coll_id);
-      bool mk = async_mark_input(c, (void*)(uintptr_t)caller_stream);
-      MLOG_DBG("S3 enqueue_wait 前(mk=%d)", (int)mk);
-      static const bool nokdesc = getenv("MOSAIC_S3_NOKDESC") != nullptr;
-      if (mk && async_enqueue_wait(c, (void*)(uintptr_t)caller_stream, (uint32_t)c->coll_id, true)) {
-        c->kdesc_active = !nokdesc;    // 诊断档:异步语义留着,交付回旧路径
-        c->async_armed = true;
-      }
-      MLOG_DBG("S3 arm 完(armed=%d)", (int)c->async_armed);
-    } else if (zerostream_on() && c->cfg.use_gpu && c->kdesc_ctr) {
-      // ── S3(a):**零流执行进同步档**(MOSAIC_ZEROSTREAM=1,默认关)。
-      // 动机(29347844/29349040 实测 + Doc/adaptive_collectives_survey.md):
-      // 均匀档我们只跑到 HDR200 的 43%,NCCL 86%;而发起速率余量 100×、
-      // 在途窗口余量 1000×、HBM 占用 1.8% ⇒ **不是容量问题,是每片的主机往返**。
-      // 默认档收一片要走:镜像 D2H → 主机轮询发现 → push 描述符 → 消费者核拷贝
-      // → 主机读 done → 回 credit,**六次跨主机/设备边界、两处受轮询周期量化**;
-      // NCCL/FlashMoE 是零次(设备侧自旋 + 核内直拷)。
-      // 这里只要 S3 的 (a) 零流执行,**不要 (b) 异步语义** —— 同步档下永远只有
-      // 一代在飞,坑 #41-#48 那一整类代际问题结构上不存在。
+    if (zerostream_on() && c->cfg.use_gpu && c->kdesc_ctr) {
+      // ── S3(a):**零流执行进同步档**(MOSAIC_ZEROSTREAM=1,默认关;
+      // 待收敛项,Raven Gate 裁决 —— 见清理计划 §2)。
+      // 动机:默认档收一片要走:镜像 D2H → 主机轮询发现 → push 描述符 →
+      // 消费者核拷贝 → 主机读 done → 回 credit,六次跨主机/设备边界、两处受
+      // 轮询周期量化;NCCL/FlashMoE 是零次(设备侧自旋 + 核内直拷)。
+      // 同步档下永远只有一代在飞,坑 #41-#48 那一整类代际问题结构上不存在。
       // 没有 caller 流(bench_a2a:数据本就在设备上、无待决生产者)⇒ 输入
       // 天然就绪,不必也无法在流上打就绪标志。
       c->input_ready = !caller_stream;
       const bool mk = caller_stream
                           ? async_mark_input(c, (void*)(uintptr_t)caller_stream)
                           : true;
-      if (mk && async_enqueue_wait(c, (void*)(uintptr_t)caller_stream,
-                                   (uint32_t)c->coll_id, /*arm_gate=*/false)) {
+      if (mk && zerostream_arm(c)) {
         c->kdesc_active = true;      // ⇒ host-API 发送 + 镜像核发现 + 消费者核交付
         MLOG_DBG("S3(a) 零流执行已挂载(同步档,coll=%d)", c->coll_id);
       }
     }
   }
-  MLOG_DBG("alltoallv %d 提交(dm=%d async=%d)", c->coll_id, demand_mode, (int)async);
+  MLOG_DBG("alltoallv %d 提交(dm=%d)", c->coll_id, demand_mode);
   c->coll_state.store(1);                       // ← event 线程从这里接手
   return mosaicSuccess;
 }
@@ -255,34 +227,9 @@ extern "C" mosaicResult_t mosaicAlltoallvEx(mosaicComm_t comm,
                                             uint64_t caller_stream, int demand_mode, uint64_t row_bytes) {
   Comm* c = (Comm*)comm;
   if (!c) return mosaicErrConfig;
-  mosaicResult_t rc = wait_coll(c);             // 隐式收尾上一笔(S3 之前恒为空转)
+  mosaicResult_t rc = submit_coll(c, sendbuf, scounts, sdispls, recvbuf, rcounts, rdispls,
+                                  caller_stream, demand_mode, row_bytes);
   if (rc != mosaicSuccess) return rc;
-  rc = submit_coll(c, sendbuf, scounts, sdispls, recvbuf, rcounts, rdispls,
-                   caller_stream, demand_mode, row_bytes, false);
-  if (rc != mosaicSuccess) return rc;
-  return wait_coll(c);
-}
-
-extern "C" mosaicResult_t mosaicAlltoallvBegin(mosaicComm_t comm,
-                                               const void* sendbuf, const size_t scounts[], const size_t sdispls[],
-                                               void* recvbuf, const size_t rcounts[], const size_t rdispls[],
-                                               uint64_t caller_stream, int demand_mode, uint64_t row_bytes) {
-  Comm* c = (Comm*)comm;
-  if (!c) return mosaicErrConfig;
-  mosaicResult_t rc = wait_coll(c);             // 一次一笔:先收上一笔
-  if (rc != mosaicSuccess) return rc;
-  const bool async = c->async_cap && caller_stream != 0 && c->cfg.use_gpu;
-  rc = submit_coll(c, sendbuf, scounts, sdispls, recvbuf, rcounts, rdispls,
-                   caller_stream, demand_mode, row_bytes, async);
-  if (rc != mosaicSuccess) return rc;
-  if (!async || !c->async_armed)
-    return wait_coll(c);                        // 平台/挂门失败 → 退回阻塞旧语义
-  return mosaicSuccess;
-}
-
-extern "C" mosaicResult_t mosaicAlltoallvEnd(mosaicComm_t comm) {
-  Comm* c = (Comm*)comm;
-  if (!c) return mosaicErrConfig;
   return wait_coll(c);
 }
 

@@ -1,0 +1,24 @@
+{
+  "comment": "Raven GPU 节点拓扑额定(2026-08-15 实测/实例化;docs/raven_corridors.md §0/§5)",
+  "host_type": {
+    "gpus_per_host": 4,
+    "nv_wiring": "direct-mesh (非 NVSwitch;每对 NV4 直连,3 邻居 x 4 束 = 12 链)",
+    "nv_per_pair_gbps_rated": 800,
+    "nv_per_gpu_agg_gbps_rated": 2400,
+    "nic": "2x IB HDR (mlx5_0, mlx5_1) 节点共享 + 1x Ethernet 管理口 (mlx5_2, 拉黑 R14)",
+    "nic_per_gpu_gbps_rated": 100,
+    "nic_model": "静态虚拟化: 每卡 = 节点聚合/4 (用户决策; 与模拟器每卡私有 NIC 假设同构)",
+    "numa": "全部 NIC 挂 NUMA0; GPU0/1=NODE, GPU2/3=SYS(跨 UPI); 加权 w_i 待专项标定"
+  },
+  "effective_2026_08_15": {
+    "comment": "含运行时流水线开销的有效值(bench 实测),给 MOSAIC_THROTTLE=0 档的决策 β 用",
+    "nv_per_gpu_egress_gbps": 288,
+    "nic_per_gpu_singlepath_gbps": 27,
+    "note": "27 为 direct 单路径口径, RX 摊布下热主机入口可达节点聚合; 决策 β 用 288/27 已验证有效 (hotdst8M 96ms), 但下界核对必须用硬件额定 (2400/100)"
+  },
+  "bounds_check_n32_msg8M": {
+    "hotdst": {"bound_ms": 45.3, "measured_best_ms": 96.0, "headroom": "2.1x"},
+    "uniform": {"bound_ms": 18.8, "measured_best_ms": 62.5, "headroom": "3.3x"},
+    "persrc": {"bound_ms": 22.0, "measured_best_ms": 74.5, "headroom": "3.4x"}
+  }
+}

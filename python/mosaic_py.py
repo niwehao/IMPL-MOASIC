@@ -35,10 +35,6 @@ def _lib():
                                            ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
                                            ctypes.c_void_p, ctypes.c_uint64, ctypes.c_int,
                                            ctypes.c_uint64]
-        # S3 异步提交(2026-08-16 sota_plan):Begin 立即返回,完成由调用方流上的
-        # 设备侧等待兜住;End 阻塞收尾。签名同 Ex。
-        _LIB.mosaicAlltoallvBegin.argtypes = _LIB.mosaicAlltoallvEx.argtypes
-        _LIB.mosaicAlltoallvEnd.argtypes = [ctypes.c_void_p]
         _LIB.mosaicBarrier.argtypes = [ctypes.c_void_p]
         _LIB.mosaicAllgather.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p]
         _LIB.mosaicGetStats.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
@@ -111,24 +107,16 @@ class Comm:
     # demand_mode/row_bytes:O2 demand hint(0 = 正常 allgather;1 = SAME 缩放;
     # 2 = TRANSPOSE 缩放;见 mosaic.h mosaicAlltoallvEx 注释)。
     def alltoallv(self, sendptr, scounts, sdispls, recvptr, rcounts, rdispls,
-                  stream=0, demand_mode=0, row_bytes=0, begin=False):
-        """begin=True(S3):提交后立即返回,数据就绪由调用方流上的设备侧等待
-        保证(调用方须持住两侧缓冲引用直到下一次调用/ wait())。"""
+                  stream=0, demand_mode=0, row_bytes=0):
+        """阻塞语义:返回 = 输出已就绪(每轮 A2A 结束必有同步,硬不变量)。"""
         A = ctypes.c_size_t * self.n
-        f = _lib().mosaicAlltoallvBegin if begin else _lib().mosaicAlltoallvEx
-        rc = f(self._h, ctypes.c_void_p(sendptr),
+        rc = _lib().mosaicAlltoallvEx(self._h, ctypes.c_void_p(sendptr),
                A(*scounts), A(*sdispls),
                ctypes.c_void_p(recvptr), A(*rcounts), A(*rdispls),
                ctypes.c_uint64(stream), ctypes.c_int(demand_mode),
                ctypes.c_uint64(row_bytes))
         if rc != 0:
             raise RuntimeError(f"alltoallv 失败 rc={rc}: {_lib().mosaicGetLastError(self._h).decode()}")
-
-    def wait(self):
-        """S3:阻塞收尾上一笔 begin 提交(读 stats / barrier / 关闭前调)。"""
-        rc = _lib().mosaicAlltoallvEnd(self._h)
-        if rc != 0:
-            raise RuntimeError(f"alltoallv end 失败 rc={rc}: {_lib().mosaicGetLastError(self._h).decode()}")
 
     # ---- 便利层:按"行"(MoE 的 token 数)----
     def alltoallv_rows(self, send_t, send_rows, recv_t, recv_rows, row_bytes):
