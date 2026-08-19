@@ -56,7 +56,7 @@ class Config(ctypes.Structure):
         ("stagger_slots", ctypes.c_int), ("ledger", ctypes.c_int), ("bcast", ctypes.c_int),
         ("pair_color", ctypes.c_int), ("cold_pace", ctypes.c_int),
         ("detector", ctypes.c_int), ("spineagg", ctypes.c_int),
-        ("verify", ctypes.c_int), ("use_gpu", ctypes.c_int),
+        ("use_gpu", ctypes.c_int),
     ]
 
 

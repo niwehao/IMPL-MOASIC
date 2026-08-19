@@ -189,8 +189,7 @@ void shm_ring_region(ShmRing* r, void** base, size_t* bytes) {
 // ─────────────────────────────────────────────────────────── TCP 连接
 // 2026-08-19 清理:TCP **数据面**已删除(slice 只走 verbs/nvshmem;建链失败 =
 // 硬错 fail-fast,不再静默降速)。TCP 只承担 ①bootstrap(QP/uid 交换,经
-// dconn 的阻塞收发)②控制面(通道 A/B/demand/FIN,MOSAIC_CTRL=tcp 或
-// verbs 回退)。
+// dconn 的阻塞收发)②控制面(同机 peer + verbs ctrl 不可用时的回退)。
 struct Conn {
   int fd = -1;
   int peer = -1;
@@ -403,8 +402,8 @@ int ctrl_send(Comm* c, int peer, CtrlType t, uint16_t aux, const void* body, uin
   h.rank = (uint8_t)c->cfg.rank; h.aux = aux;
   memcpy(m.data(), &h, sizeof(h));
   if (n) memcpy(m.data() + sizeof(h), body, n);
-  // O3(MOSAIC_CTRL=verbs):跨机 peer 的控制报文走 RDMA SEND,单程 ~5µs
-  // (TCP 内核栈 ~30-60µs)。无槽/超长/建链中回退 TCP —— 报文自带长度分帧,
+  // 跨机 peer 的控制报文恒走 RDMA SEND(独立 ctrl QP,单程 ~5µs;TCP 内核栈
+  // ~30-60µs)。无槽/超长/建链失败回退 TCP —— 报文自带长度分帧,
   // 两条通路交错到达也能正确解析(接收侧按 CtrlHdr 逐条处理,无流内状态)。
   if (c->ctrl_verbs && !c->topo.same_host(c->cfg.rank, peer) &&
       verbs_ctrl_send(c, peer, m.data(), (uint32_t)m.size()) == 0)

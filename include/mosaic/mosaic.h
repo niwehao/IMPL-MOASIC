@@ -67,7 +67,8 @@ typedef struct {
   int spineagg;             /* 1 = fabric 账聚合档(纯 ECMP fabric 的兜底,
                                emu 与 Raven 都是无 spine 选择的 fabric → 恒 1;
                                旋钮保留是为与模拟器 flag 对表) */
-  int verify;               /* 1 = 逐 slice CRC 校验 */
+  /* (原 verify 逐 slice CRC 已删,2026-08-19:payload 全程在设备内存,
+     CPU 无法读;正确性判据 = 端到端 bit-exact 校验 + 训练 loss 门。) */
   int use_gpu;              /* 默认自动探测(有 CUDA 设备即 1);0 = 纯 host 内存跑
                                协议(离线决策回放用;有机内 peer 的形态不支持)。
                                2026-08-19 起无 env 镜像,只能程序内设。 */

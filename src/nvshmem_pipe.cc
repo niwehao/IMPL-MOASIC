@@ -452,7 +452,7 @@ int nvsh_post_slice(Comm* c, int peer, const SliceHdr& h, const void* gpu_src,
     int hs = v->hhdr_free.back(); v->hhdr_free.pop_back();
     uint8_t* hslot = v->hhdr_pool + (size_t)hs * HDR_STRIDE;
     memcpy(hslot, &h, sizeof(SliceHdr));
-    if (!c->cfg.verify) {          // 槽使用代数写进 crc 位(镜像核 tag 校验)
+    {   // 槽使用代数写进 crc 位(镜像核 tag 校验;slice CRC 已删,crc 位专职 tag)
       uint32_t tag = (uint32_t)(seq / (uint64_t)v->nslots + 1);
       memcpy(hslot + 30, &tag, 4);
     }
@@ -484,10 +484,10 @@ int nvsh_post_slice(Comm* c, int peer, const SliceHdr& h, const void* gpu_src,
   uint64_t* rsig = v->sig + (size_t)v->mype * v->nslots + rslot;
 
   NvshCtx::TxRec r{-1, nullptr, h.len, relay_slot, peer, seq, false};
-  // 流路径也写代数 tag(crc 位,verify 关时):镜像核常驻后阻塞 coll 的
-  // 交付同样经它校验,没 tag 会被判"头未就绪"永卡
+  // 流路径也写代数 tag(crc 位):镜像核常驻后阻塞 coll 的交付同样经它校验,
+  // 没 tag 会被判"头未就绪"永卡
   SliceHdr h2 = h;
-  if (!c->cfg.verify) h2.crc = (uint32_t)(seq / (uint64_t)v->nslots + 1);
+  h2.crc = (uint32_t)(seq / (uint64_t)v->nslots + 1);
   if (zc) {
     // O5 零拷贝:payload 直接以 gpu_src 为源 put 到远端槽 payload 区;
     // 64B 头单独经头槽 put 到槽首并携带 signal。顺序保证:同流 + 同 PE +
@@ -622,7 +622,7 @@ int nvsh_hdr_stage(Comm* c, const SliceHdr& h, int peer, int* hdr_slot, uint64_t
   uint8_t* hslot = v->hhdr_pool + (size_t)hs * HDR_STRIDE;
   memset(hslot, 0, HDR_STRIDE);
   memcpy(hslot, &h, sizeof(SliceHdr));
-  if (!c->cfg.verify) {   // 槽使用代数写进 crc 位(镜像核 tag 校验;与 sig 值同)
+  {   // 槽使用代数写进 crc 位(镜像核 tag 校验;与 sig 值同)
     uint32_t tag = (uint32_t)(v->sent_cnt[peer] / (uint64_t)v->nslots + 1);
     memcpy(hslot + 30, &tag, 4);
   }

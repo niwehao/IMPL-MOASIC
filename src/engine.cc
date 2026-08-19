@@ -174,7 +174,7 @@ static bool kmirror_prep(Comm* c) {
   cfg->last_sig = (uint64_t)(uintptr_t)sc;
   cfg->stop = c->kdesc_ctr_dev + 128;
   cfg->magic_val = SLICE_MAGIC;
-  cfg->tag_check = c->cfg.verify ? 0 : 1;   // verify 档 crc 位另有他用,退回仅 magic
+  cfg->tag_check = 1;   // crc 位专职槽代数 tag(slice CRC 已删)
   c->kmirror_scratch_dev = cfg->last_sig;
   return true;
 }
@@ -239,16 +239,12 @@ static bool kdesc_push(Comm* c, uint64_t src_dev, void* dst_dev, uint64_t len) {
   c->kdesc_pushed++;
   return true;
 }
-// 解析设备可读的 src 指针;0 = 不可解析(退回旧路径)
+// 解析设备可读的 src 指针。2026-08-19 起所有数据 payload 都在设备内存
+// (IPC 环 / NVSHMEM 对称堆 / verbs GPU 接收槽),直接可用。
 static uint64_t kdesc_resolve_src(Comm* c, const void* payload, int shm_ring,
                                   int verbs_token, bool via_nic) {
-  if (via_nic && c->use_nvsh && verbs_token >= 0)
-    return (uint64_t)(uintptr_t)payload;       // NVSHMEM 接收环 = 设备内存
-  if (shm_ring >= 0)
-    return (uint64_t)(uintptr_t)payload;       // CUDA IPC 设备环(payload 恒在设备)
-  for (const auto& m : c->kdesc_maps)          // pinned host 池(mapped)
-    if ((const uint8_t*)payload >= m.host && (const uint8_t*)payload < m.host + m.size)
-      return m.dev + (uint64_t)((const uint8_t*)payload - m.host);
+  (void)c; (void)via_nic;
+  if (shm_ring >= 0 || verbs_token >= 0) return (uint64_t)(uintptr_t)payload;
   return 0;
 }
 
@@ -256,12 +252,11 @@ static uint64_t kdesc_resolve_src(Comm* c, const void* payload, int shm_ring,
 static uint8_t* relay_ptr(Comm* c, int slot) {
   return (uint8_t*)c->relay_pool + (size_t)slot * (size_t)c->cfg.slice_bytes;
 }
-// staging 槽 = [HDR_STRIDE | payload](internal.h);base 给 RDMA(一次 WR 发
-// 头+payload),payload 指针给 CUDA 拷贝与 TCP writev
-static uint8_t* stage_base2(Comm* c, int slot) {
-  return (uint8_t*)c->stage_pool + (size_t)slot * (size_t)(HDR_STRIDE + c->cfg.slice_bytes);
+// verbs staging:payload 槽在 GPU 池(D2D 组装,RDMA GDR 直读);头由
+// verbs_post_slice 写进 host 头池,双 SGE 同一 WR 发出
+static uint8_t* stage_gpu(Comm* c, int slot) {
+  return (uint8_t*)c->stage_gpu_pool + (size_t)slot * (size_t)c->cfg.slice_bytes;
 }
-static uint8_t* stage_ptr2(Comm* c, int slot) { return stage_base2(c, slot) + HDR_STRIDE; }
 static int relay_alloc(Comm* c) {
   if (c->relay_free.empty()) return -1;
   int s = c->relay_free.back(); c->relay_free.pop_back(); return s;
@@ -1365,12 +1360,8 @@ void on_slice_arrived(Comm* c, const SliceHdr& h, void* payload, int shm_ring, i
   const int me = c->cfg.rank;
   const bool final_hop = (h.hop + 1 >= h.nhops);
 
-  const bool dev_payload = (shm_ring >= 0);   // 机内环 payload 恒在设备内存
-  if (c->cfg.verify && h.crc && !dev_payload) {
-    uint32_t got = crc32_buf(payload, h.len);
-    if (got != h.crc) MLOG_ERR("E3001 CRC 失配 (%d→%d) off=%llu", h.src, h.dst,
-                               (unsigned long long)h.off);
-  }
+  // (逐 slice CRC 已删,2026-08-19:payload 全程在设备内存,CPU 无法读;
+  //  正确性判据 = 端到端 bit-exact 校验(bench --verify)+ 训练 loss 门。)
   c->buck[dn_kind(via_nic)].take(h.len);
   if (via_nic) {
     det_feed(c, 1, h.len);                       // 检测器:NIC↓ 到达事件
@@ -1527,7 +1518,7 @@ static void pump_one_queue(Comm* c, std::deque<ReadySlice>& q, bool via_nic) {
       int slot = stage_alloc2(c);
       if (slot < 0) return;                       // staging 用完 = 背压
       t.stage_slot = slot;
-      hdst = stage_ptr2(c, slot);
+      hdst = stage_gpu(c, slot);                  // D2D 到 GPU staging(GDR 直发源)
     } else {
       ShmRing* ring = c->tx_ring[peer];
       // S3 二期:dev 环(CUDA IPC)发送交消费者核 —— 跨 GPU cudaMemcpyAsync
@@ -1599,19 +1590,15 @@ static void pump_tx(Comm* c) {
     stuck_since = 0;
     ev_give(c, t.ev);
     if (t.shm_ring >= 0) {
-      // payload 已在 SHM 里,发布即对端可见
+      // payload 已在 IPC 环里,发布即对端可见
       shm_ring_publish(c->tx_ring[t.shm_ring]);
     } else {
-      uint8_t* p = stage_ptr2(c, t.stage_slot);
-      SliceHdr h = t.h;
-      if (c->cfg.verify) h.crc = crc32_buf(p, h.len);
       c->nic_tx_outstanding++;                    // 检测器 busy 判定用
-      MTRACE(TE_SLICE_TX, ((uint32_t)h.src << 16) | h.dst, h.off,
-             ((uint64_t)h.len << 8) | h.hop);     // D2H 已完成,这一刻才真正投出
-      // RDMA SEND:头写进槽首 HDR_STRIDE 区,一次 WR 发出;完成事件回收槽。
-      // TCP 数据面已删(2026-08-19):发送失败 = 硬错(fail-fast,不静默降速)。
-      (void)p;
-      if (verbs_post_slice(c, t.peer, h, stage_base2(c, t.stage_slot), t.stage_slot) != 0) {
+      MTRACE(TE_SLICE_TX, ((uint32_t)t.h.src << 16) | t.h.dst, t.h.off,
+             ((uint64_t)t.h.len << 8) | t.h.hop); // D2D 组装完成,这一刻才真正投出
+      // RDMA SEND 双 SGE [host 头 | GPU payload],完成事件回收槽。
+      // 数据面无回退(TCP 已删):发送失败 = 硬错终止本 collective。
+      if (verbs_post_slice(c, t.peer, t.h, t.stage_slot) != 0) {
         MLOG_ERR("E1027 verbs 发送失败(r%d)—— 数据面无回退,置错终止本 collective", t.peer);
         c->err = "E1027 verbs 发送失败";
         c->coll_state.store(3);
@@ -2243,18 +2230,16 @@ void engine_start(Comm* c) {
     }
   }
   size_t sb = (size_t)c->cfg.slice_bytes;
-  const size_t stage_stride = (size_t)HDR_STRIDE + sb;   // [头|payload] 布局
   c->stage_slots = NST; c->relay_slots = NRE;
+  // verbs staging 只在 verbs 数据面需要(nvshmem 数据面省 128MB 显存)
+  const char* nic_env0 = getenv("MOSAIC_NIC");
+  const bool plane_nvsh = nic_env0 && strcmp(nic_env0, "nvshmem") == 0;
   if (c->cfg.use_gpu) {
-    // Mapped:S3 二期消费者核要能直接读 staging(UVA);对旧拷贝路径无影响
-    CUCHK(cudaHostAlloc(&c->stage_pool, stage_stride * NST,
-                        cudaHostAllocPortable | cudaHostAllocMapped), "hostAlloc stage");
-    {
-      void* dp = nullptr;
-      if (cudaHostGetDevicePointer(&dp, c->stage_pool, 0) == cudaSuccess)
-        c->kdesc_maps.push_back({(const uint8_t*)c->stage_pool,
-                                 (uint64_t)(uintptr_t)dp, stage_stride * (size_t)NST});
-    }
+    // host 头池(64B/槽,CPU 写头 + RDMA SGE0)+ GPU payload 池(GDR 直发源)
+    CUCHK(cudaHostAlloc((void**)&c->stage_hdr_pool, (size_t)NST * HDR_STRIDE,
+                        cudaHostAllocPortable), "hostAlloc stage hdr");
+    if (!plane_nvsh)
+      CUCHK(cudaMalloc(&c->stage_gpu_pool, sb * NST), "malloc stage gpu");
     CUCHK(cudaMalloc(&c->relay_pool, sb * NRE), "malloc relay");
     // NV 管的 payload 环:恒在设备内存(CUDA IPC,GPU↔GPU 直达;host-SHM
     // payload 的模拟遗留路径已删,2026-08-19)。句柄经环头(共享内存)交给对端。
@@ -2293,7 +2278,7 @@ void engine_start(Comm* c) {
         c->err = "E5030 use_gpu=0 不支持机内 peer";
         return;
       }
-    c->stage_pool = malloc(stage_stride * NST);
+    c->stage_hdr_pool = (uint8_t*)malloc((size_t)NST * HDR_STRIDE);
     c->relay_pool = malloc(sb * NRE);
   }
   c->stage_free.clear(); c->relay_free.clear();
@@ -2303,13 +2288,14 @@ void engine_start(Comm* c) {
   // ── 跨机数据面选择:MOSAIC_NIC=verbs(默认)| nvshmem(Raven;待收敛项,
   // 见 File/debug-819/local-0819-transport-cleanup-plan.md §2)。
   // TCP 数据面已删(2026-08-19):建链失败 = 硬错 fail-fast,不静默降速。
+  // 跨机控制面**恒走 verbs SEND**(Gate1 实测 256KB A2A 160.4→82.7µs;
+  // 原 MOSAIC_CTRL 旋钮删除):verbs_setup 每 peer 附带一条 ctrl QP;
+  // nvshmem 数据面形态下建 ctrl-only verbs;建链失败回退 TCP(告警,确定性)。
   {
     bool has_remote = false;
     for (int p = 0; p < c->cfg.nranks; p++)
       if (p != c->cfg.rank && !c->topo.same_host(c->cfg.rank, p)) { has_remote = true; break; }
-    const char* nic = getenv("MOSAIC_NIC");
-    const bool want_nvsh = nic && strcmp(nic, "nvshmem") == 0;
-    if (has_remote && want_nvsh) {
+    if (has_remote && plane_nvsh) {
       if (nvsh_setup(c) == 0) {
         c->use_nvsh = true;
         MLOG_INFO("跨机数据面 = NVSHMEM(put+signal)");
@@ -2319,28 +2305,23 @@ void engine_start(Comm* c) {
         c->err = "E5016 NVSHMEM 建链失败";
         return;
       }
+      if (verbs_setup(c, /*data_plane=*/false) == 0) {
+        c->ctrl_verbs = true;
+        MLOG_INFO("控制面 = RDMA SEND(ctrl-only QP;同机 peer 走 TCP)");
+      } else {
+        verbs_teardown(c);
+        MLOG_WARN("E1029 verbs ctrl 建链失败,控制面回退 TCP");
+      }
     } else if (has_remote) {
-      if (verbs_setup(c) == 0) {
+      if (verbs_setup(c, /*data_plane=*/true) == 0) {
         c->use_verbs = true;
-        MLOG_INFO("跨机数据面 = RDMA verbs");
+        c->ctrl_verbs = true;
+        MLOG_INFO("跨机数据面 = RDMA verbs(GDR)+ 控制面 RDMA SEND");
       } else {
         verbs_teardown(c);
         MLOG_ERR("E1028 verbs 建链失败(数据面无 TCP 回退,硬错)");
         c->err = "E1028 verbs 建链失败";
         return;
-      }
-    }
-    // O3:控制面走 RDMA(小报文 SEND,专用注册槽池;无槽/超长自动回退 TCP)。
-    // 数据面 = nvshmem 时也可开:verbs_setup 独立建 QP,只为控制面服务。
-    const char* ce = getenv("MOSAIC_CTRL");
-    if (has_remote && ce && strcmp(ce, "verbs") == 0) {
-      if (!c->verbs && verbs_setup(c) != 0) {
-        MLOG_WARN("E1029 MOSAIC_CTRL=verbs 但 verbs 建链失败,控制面留在 TCP");
-        verbs_teardown(c);
-      }
-      if (c->verbs) {
-        c->ctrl_verbs = true;
-        MLOG_INFO("控制面 = RDMA SEND(通道 A/B/demand/FIN;同机 peer 仍走 TCP)");
       }
     }
   }
@@ -2406,12 +2387,13 @@ void engine_stop(Comm* c) {
     if (c->stream_mirror) { cudaStreamDestroy((cudaStream_t)c->stream_mirror); c->stream_mirror = nullptr; }
     if (c->kmirror_cfg) { cudaFreeHost(c->kmirror_cfg); c->kmirror_cfg = nullptr; }
     if (c->kmirror_scratch_dev) { cudaFree((void*)(uintptr_t)c->kmirror_scratch_dev); c->kmirror_scratch_dev = 0; }
-    if (c->stage_pool) cudaFreeHost(c->stage_pool);
+    if (c->stage_hdr_pool) cudaFreeHost(c->stage_hdr_pool);
+    if (c->stage_gpu_pool) cudaFree(c->stage_gpu_pool);
     if (c->relay_pool) cudaFree(c->relay_pool);
     if (c->stream_d2h) cudaStreamDestroy((cudaStream_t)c->stream_d2h);
     if (c->stream_h2d) cudaStreamDestroy((cudaStream_t)c->stream_h2d);
   } else {
-    free(c->stage_pool); free(c->relay_pool);
+    free(c->stage_hdr_pool); free(c->relay_pool);
   }
   ES_drop(c);
 }

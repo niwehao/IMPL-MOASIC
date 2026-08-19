@@ -156,11 +156,8 @@ int main(int argc, char** argv) {
     else if (a == "--dump-demand") dump_demand = 1;
     else if (a == "--demand-file") demand_file = nx();
   }
-  // --verify 只控制**端到端字节校验**(it==warmup 那次,对照 pat() 逐字节比对,
-  // 这就是 bit-exact 判据)。逐 slice 的 CRC 是独立的 debug 旋钮
-  // MOSAIC_SLICE_CRC=1(默认关):它在单事件线程热路径上逐 slice 计算,即便
-  // 换了硬件 crc32c 也要 ~3GB/s 的税,开着会把计时口径压低(log.md 坑 #14)。
-  cfg.verify = getenv("MOSAIC_SLICE_CRC") ? atoi(getenv("MOSAIC_SLICE_CRC")) : 0;
+  // --verify 控制**端到端字节校验**(it==warmup 那次,对照 pat() 逐字节比对,
+  // 这就是 bit-exact 判据)。逐 slice CRC 已随 GDR 重构删除(payload 不过 host)。
 
   const int n = cfg.nranks, me = cfg.rank;
   auto D = demand_file.empty() ? build_demand(n, msg, alpha, seed, mode, 4096)

@@ -123,7 +123,6 @@ uint64_t now_ns();
 void mlog(int level, const char* fmt, ...);   // 0=err 1=warn 2=info 3=debug
 extern int g_log_level;
 extern int g_rank_for_log;
-uint32_t crc32_buf(const void* p, size_t n);
 
 // 二进制 trace ring(Imp_Plan/06 §5.2:Raven 不可交互调试的现场记录)。
 // MOSAIC_TRACE=1 时启用:mmap 文件上的 32B 定长事件环(满即覆盖,保最近窗口;
@@ -312,7 +311,10 @@ struct Comm {
   void* relay_pool = nullptr;      // GPU 上的中转缓冲
   int relay_slots = 0;
   std::vector<int> relay_free;
-  void* stage_pool = nullptr;      // pinned host staging(走 TCP 用)
+  // verbs 数据面 staging(2026-08-19 GDR 重构):payload 在 GPU 池(dmabuf 注册,
+  // RDMA 直读写),64B 头在 host 池(CPU 直写、双 SGE 同一 WR 发出)。
+  uint8_t* stage_hdr_pool = nullptr;   // host pinned,NST × HDR_STRIDE
+  void* stage_gpu_pool = nullptr;      // GPU,NST × slice_bytes(nvshmem 数据面时不建)
   int stage_slots = 0;
   std::vector<int> stage_free;
 
@@ -393,7 +395,6 @@ struct Comm {
   // S3 方案 N:GPU 消费者内核 —— host 只写 pinned 描述符,交付拷贝与
   // 完成判定全在设备(契约见 consumer_kernel.cu)。
   struct KDesc { uint64_t src, dst, len, pad; };
-  struct KMap { const uint8_t* host; uint64_t dev; size_t size; };
   KDesc* kdesc_ring = nullptr;      // 描述符环(pinned mapped,host 写)
   uint64_t kdesc_ring_dev = 0;
   uint8_t* kdesc_ctr = nullptr;     // 计数块 192B:+0 head / +64 done / +128 stop
@@ -402,7 +403,6 @@ struct Comm {
   uint32_t kdesc_cap = 0;           // 2 的幂
   uint64_t kdesc_pushed = 0;        // host 累计推入(head 的镜像)
   uint64_t kdesc_consumed = 0;      // host 已收编的 done
-  std::vector<KMap> kdesc_maps;     // pinned host 池 → 设备指针的区间映射
   void* kcons_mod = nullptr;
   void* kcons_fn = nullptr;
   void* stream_cons = nullptr;      // 消费者核专用流(门在 caller 流上的 host 回调)
@@ -418,7 +418,7 @@ struct Comm {
   bool kmirror_on = false;          // 本 coll 镜像核在跑 ⇒ nvsh_poll 直读 shadow
   bool input_ready = false;         // 本 coll input_ev 已确认(host-API hop0 门)
   uint64_t caller_stream = 0;       // 本 coll 的调用方流(诊断:查它是否卡住)
-  // O3 控制面走 RDMA(MOSAIC_CTRL=verbs;失败/超长自动回退 TCP)
+  // 跨机控制面走 RDMA SEND(恒开;建链失败/池满/同机 peer 自动回退 TCP)
   bool ctrl_verbs = false;
 
   // ---- 本次 collective ----
@@ -527,10 +527,10 @@ int  net_blocking_exchange(Comm* c, int peer, const void* mine, void* remote, si
 // net.cc:已组帧(含 CtrlHdr)报文直接走 TCP 队列
 int  ctrl_send_tcp(Comm* c, int peer, const void* framed, uint32_t n);
 
-// verbs.cc(RoCE RDMA 数据面;MOSAIC_NIC=verbs 时启用,失败自动回退 TCP)
-int  verbs_setup(Comm* c);
+// verbs.cc(RDMA 数据面 + 控制面;data_plane=false = 仅控制面,nvshmem 形态用)
+int  verbs_setup(Comm* c, bool data_plane);
 void verbs_teardown(Comm* c);
-int  verbs_post_slice(Comm* c, int peer, const SliceHdr& h, void* slot_base, int stage_slot);
+int  verbs_post_slice(Comm* c, int peer, const SliceHdr& h, int stage_slot);
 int  verbs_poll(Comm* c);
 void verbs_repost(Comm* c, int token);
 // O3:控制面报文经数据 QP 发送(小报文,注册槽池;0 = 已发,-1 = 不可用/无槽,

@@ -77,34 +77,6 @@ void mlog(int level, const char* fmt, ...) {
   fflush(stderr);
 }
 
-// CRC 用 SSE4.2 硬件 crc32c(x86 上 ~20GB/s)。原先的字节表版只有 ~400MB/s,
-// 而 CRC 在**单事件线程的热路径**上逐 slice 算 —— verify=1 时把 RDMA 数据面
-// 从 88Gbps 拖到 1.8Gbps(48×!),而且旧 TCP 结果在 NIC 侧也被它悄悄压过
-// (见 log.md 坑 #14)。校验语义不变:两端用同一函数,只比对一致性。
-uint32_t crc32_buf(const void* p, size_t n) {
-  const uint8_t* b = (const uint8_t*)p;
-  uint64_t c = 0xFFFFFFFFu;
-  size_t i = 0;
-#if defined(__SSE4_2__)
-  for (; i + 8 <= n; i += 8) {
-    uint64_t v;
-    memcpy(&v, b + i, 8);
-    c = __builtin_ia32_crc32di(c, v);
-  }
-#endif
-  for (; i < n; i++)
-#if defined(__SSE4_2__)
-    c = __builtin_ia32_crc32qi((uint32_t)c, b[i]);
-#else
-  {  // 无 SSE4.2 的兜底(慢,但仅影响 verify 模式)
-    uint32_t x = ((uint32_t)c ^ b[i]) & 0xFF;
-    for (int k = 0; k < 8; k++) x = (x & 1) ? 0x82F63B78u ^ (x >> 1) : x >> 1;
-    c = ((uint32_t)c >> 8) ^ x;
-  }
-#endif
-  return (uint32_t)c ^ 0xFFFFFFFFu;
-}
-
 static int envi(const char* k, int d) {
   const char* v = getenv(k);
   return v && *v ? atoi(v) : d;
@@ -152,7 +124,6 @@ extern "C" mosaicResult_t mosaicConfigDefault(mosaicConfig_t* cfg) {
   cfg->cold_pace = envi("MOSAIC_COLD_PACE", 1);
   cfg->detector = envi("MOSAIC_DETECTOR", 1);
   cfg->spineagg = envi("MOSAIC_SPINEAGG", 1);
-  cfg->verify = envi("MOSAIC_VERIFY", 0);
   // use_gpu 自动探测(2026-08-19:MOSAIC_USE_GPU env 删除)。无 CUDA 设备
   // (Raven 登录节点跑离线回放)自动走纯 host;测试可程序内显式置 0。
   {
