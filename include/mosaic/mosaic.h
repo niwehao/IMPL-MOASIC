@@ -68,9 +68,11 @@ typedef struct {
                                emu 与 Raven 都是无 spine 选择的 fabric → 恒 1;
                                旋钮保留是为与模拟器 flag 对表) */
   int verify;               /* 1 = 逐 slice CRC 校验 */
-  int use_gpu;              /* 0 = 纯 host 内存跑协议(无 GPU 调试用) */
-  int nv_ipc;               /* 1 = NV 管的 payload 走 CUDA IPC 设备内存(更贴 NVLink);
-                               0 = payload 走 POSIX 共享内存(过 PCIe,保真度差但零依赖) */
+  int use_gpu;              /* 默认自动探测(有 CUDA 设备即 1);0 = 纯 host 内存跑
+                               协议(离线决策回放用;有机内 peer 的形态不支持)。
+                               2026-08-19 起无 env 镜像,只能程序内设。 */
+  /* (原 nv_ipc 已删,2026-08-19:机内 payload 恒走 CUDA IPC 设备内存;
+     POSIX 共享内存 payload 属模拟遗留路径。) */
 } mosaicConfig_t;
 
 /* 用默认值 + 环境变量填充 cfg;rank/nranks 也可由 MOSAIC_RANK/MOSAIC_NRANKS 给。 */

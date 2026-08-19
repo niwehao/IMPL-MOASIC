@@ -65,7 +65,7 @@ $(BUILD)/bench_a2a: bench/bench_a2a.cc $(BUILD)/libmosaic.so | $(BUILD)
 	$(CXX) $(CXXFLAGS) $< -o $@ -L$(BUILD) -lmosaic $(LDFLAGS) -Wl,-rpath,$(abspath $(BUILD))
 
 $(BUILD)/test_topo: tests/test_topo.cc src/topo.cc src/util.cc | $(BUILD)
-	$(CXX) $(CXXFLAGS) $^ -o $@ -lpthread
+	$(CXX) $(CXXFLAGS) $^ -o $@ -lpthread -L$(CUDA_ROOT)/lib64 -lcudart -Wl,-rpath,$(CUDA_ROOT)/lib64
 
 clean:
 	rm -f $(OBJ) $(OBJ:.o=.d); rm -rf $(BUILD)

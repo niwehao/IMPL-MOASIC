@@ -48,10 +48,9 @@ struct ShmRing {
   void* base = nullptr;
   size_t bytes = 0;
   ShmRingHdr* hdr = nullptr;
-  uint8_t* slots = nullptr;     // nslots × (sizeof(ShmSlotHdr) + slot_bytes)
+  uint8_t* slots = nullptr;     // nslots × sizeof(ShmSlotHdr)(仅控制信息;payload 恒在设备)
   int nslots = 0, slot_bytes = 0;
   size_t stride = 0;
-  bool host_payload = true;     // false = payload 在设备内存(IPC 模式)
   void* dev_ring = nullptr;     // 生产者:自己 cudaMalloc 的;消费者:IPC 打开的对端指针
   // 生产者:local_head = 已发布数,pending = 已占用但等 D2H 完成才能发布的数。
   // 消费者:local_tail = 已回收数,inflight = 已取走但等 H2D 完成才能回收的数。
@@ -61,9 +60,10 @@ struct ShmRing {
   uint8_t* slot_ptr(uint64_t seq) const { return slots + (seq % nslots) * stride; }
 };
 
-ShmRing* shm_ring_create(const std::string& name, int nslots, int slot_bytes, bool creator,
-                         bool payload_in_shm) {
-  size_t stride = sizeof(ShmSlotHdr) + (payload_in_shm ? (size_t)slot_bytes : 0);
+ShmRing* shm_ring_create(const std::string& name, int nslots, int slot_bytes, bool creator) {
+  // payload 恒在设备内存(CUDA IPC),共享内存只承载控制信息(头 + 序号)。
+  // host-SHM payload 的模拟遗留路径已删(2026-08-19)。
+  size_t stride = sizeof(ShmSlotHdr);
   size_t bytes = sizeof(ShmRingHdr) + (size_t)nslots * stride;
   int fd = -1;
   for (int tries = 0; tries < 20000; tries++) {   // 消费者可能早于生产者到达
@@ -95,7 +95,6 @@ ShmRing* shm_ring_create(const std::string& name, int nslots, int slot_bytes, bo
   r->hdr = (ShmRingHdr*)base;
   r->slots = (uint8_t*)base + sizeof(ShmRingHdr);
   r->nslots = nslots; r->slot_bytes = slot_bytes; r->stride = stride;
-  r->host_payload = payload_in_shm;
   if (creator) {
     r->hdr->head.store(0); r->hdr->tail.store(0);
     r->hdr->nslots = nslots; r->hdr->slot_bytes = slot_bytes;
@@ -120,8 +119,7 @@ bool shm_ring_reserve(ShmRing* r, void** payload, SliceHdr** hdr) {
   if (seq - tail >= (uint64_t)r->nslots) return false;   // 满 = 背压
   uint8_t* s = r->slot_ptr(seq);
   *hdr = &((ShmSlotHdr*)s)->h;
-  *payload = r->host_payload ? (void*)(s + sizeof(ShmSlotHdr))
-                             : (void*)((uint8_t*)r->dev_ring + (seq % r->nslots) * (size_t)r->slot_bytes);
+  *payload = (void*)((uint8_t*)r->dev_ring + (seq % r->nslots) * (size_t)r->slot_bytes);
   r->pending++;
   return true;
 }
@@ -142,8 +140,7 @@ bool shm_ring_peek(ShmRing* r, void** payload, SliceHdr** hdr) {
   uint8_t* s = r->slot_ptr(seq);
   if (((ShmSlotHdr*)s)->ready.load(std::memory_order_acquire) != seq + 1) return false;
   *hdr = &((ShmSlotHdr*)s)->h;
-  *payload = r->host_payload ? (void*)(s + sizeof(ShmSlotHdr))
-                             : (void*)((uint8_t*)r->dev_ring + (seq % r->nslots) * (size_t)r->slot_bytes);
+  *payload = (void*)((uint8_t*)r->dev_ring + (seq % r->nslots) * (size_t)r->slot_bytes);
   return true;
 }
 
@@ -165,8 +162,6 @@ void shm_ring_stat(ShmRing* r, uint64_t* head, uint64_t* tail, int* inflight, in
 }
 
 // engine.cc 要把整段 SHM 钉页(cudaHostRegister),但那边看不到 ShmRing 的定义
-bool shm_ring_is_dev(ShmRing* r) { return r && !r->host_payload; }
-void* shm_ring_dev(ShmRing* r) { return r ? r->dev_ring : nullptr; }
 void shm_ring_set_dev(ShmRing* r, void* p) { if (r) r->dev_ring = p; }
 // IPC 句柄的发布/读取(经环头这块共享内存,零额外协议)
 void shm_ring_put_ipc(ShmRing* r, const void* handle, size_t n) {
@@ -339,14 +334,14 @@ int net_setup(Comm* c) {
     if (p == me || !c->topo.same_host(me, p)) continue;
     char nm[128];
     snprintf(nm, sizeof(nm), "/mosaic_%d_%d_%d", job, me, p);
-    c->tx_ring[p] = shm_ring_create(nm, nslots, c->cfg.slice_bytes, true, !c->cfg.nv_ipc);
+    c->tx_ring[p] = shm_ring_create(nm, nslots, c->cfg.slice_bytes, true);
     if (!c->tx_ring[p]) return -1;
   }
   for (int p = 0; p < n; p++) {
     if (p == me || !c->topo.same_host(me, p)) continue;
     char nm[128];
     snprintf(nm, sizeof(nm), "/mosaic_%d_%d_%d", job, p, me);
-    c->rx_ring[p] = shm_ring_create(nm, nslots, c->cfg.slice_bytes, false, !c->cfg.nv_ipc);
+    c->rx_ring[p] = shm_ring_create(nm, nslots, c->cfg.slice_bytes, false);
     if (!c->rx_ring[p]) return -1;
   }
   MLOG_INFO("建链完成:%d ranks, G=%d, H=%d", n, c->topo.G, c->topo.H);

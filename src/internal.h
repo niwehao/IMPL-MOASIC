@@ -238,26 +238,14 @@ struct Detector {
   bool locked = false;
 };
 
-// ─────────────────────────────────────────────────────────── L1:token bucket
+// ─────────────────────────────────────────────────────────── L1:资源计数器
+// 原 token bucket 限速已删(2026-08-19,真机为准:额定值只喂决策层的代价模型,
+// 数据面永不限速;模拟档的限速/降速注入随虚拟化一起废弃)。
+// 保留 passed 计数 —— 它是该资源的 discharge,喂通道 A 遥测与账本(决策层语义不变)。
 struct Bucket {
-  double rate_Bps = 0;       // <=0 表示不限速
-  double avail = 0;          // 允许为负(deficit 语义,防大 slice 饿死)
-  double burst = 0;
-  uint64_t last_ns = 0;
   uint64_t passed = 0;       // 累计通过字节(= 该资源的 discharge 计数)
-  void init(double gbps, uint64_t t) {
-    rate_Bps = gbps > 0 ? gbps * 1e9 / 8.0 : 0;
-    burst = rate_Bps > 0 ? rate_Bps * 200e-6 : 0;   // 200µs 突发
-    avail = burst; last_ns = t; passed = 0;
-  }
-  void refill(uint64_t t) {
-    if (rate_Bps <= 0) return;
-    double dt = (t - last_ns) * 1e-9; last_ns = t;
-    avail += rate_Bps * dt;
-    if (avail > burst) avail = burst;
-  }
-  bool ok() const { return rate_Bps <= 0 || avail > 0; }
-  void take(uint64_t n) { if (rate_Bps > 0) avail -= (double)n; passed += n; }
+  void init() { passed = 0; }
+  void take(uint64_t n) { passed += n; }
 };
 
 // ─────────────────────────────────────────────────────────── L0:传输
@@ -519,10 +507,7 @@ inline void kdesc_release_gate(Comm* c) {
   c->kmirror_on = false;
 }
 
-ShmRing* shm_ring_create(const std::string& name, int nslots, int slot_bytes, bool creator,
-                         bool payload_in_shm);
-bool shm_ring_is_dev(ShmRing* r);
-void* shm_ring_dev(ShmRing* r);
+ShmRing* shm_ring_create(const std::string& name, int nslots, int slot_bytes, bool creator);
 void shm_ring_set_dev(ShmRing* r, void* p);
 void shm_ring_put_ipc(ShmRing* r, const void* handle, size_t n);
 bool shm_ring_get_ipc(ShmRing* r, void* handle, size_t n);
@@ -535,7 +520,6 @@ void shm_ring_pop(ShmRing* r);
 int  shm_ring_inflight(ShmRing* r);
 void shm_ring_region(ShmRing* r, void** base, size_t* bytes);
 void shm_ring_stat(ShmRing* r, uint64_t* head, uint64_t* tail, int* inflight, int* pending);
-bool rx_gate(Comm* c, bool via_nic);   // engine.cc 定义,数据收取前调
 void stage_release(Comm* c, int slot);
 // 建链期的阻塞式小报文交换(经已有 TCP 数据连接;verbs 用它换 QP 信息)
 int  net_blocking_exchange(Comm* c, int peer, const void* mine, void* remote, size_t n);

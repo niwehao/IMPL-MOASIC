@@ -1,6 +1,8 @@
 /* util.cc —— 时钟、日志、CRC、trace ring、配置(环境变量)。 */
 #include "internal.h"
 
+#include <cuda_runtime.h>
+
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -151,10 +153,12 @@ extern "C" mosaicResult_t mosaicConfigDefault(mosaicConfig_t* cfg) {
   cfg->detector = envi("MOSAIC_DETECTOR", 1);
   cfg->spineagg = envi("MOSAIC_SPINEAGG", 1);
   cfg->verify = envi("MOSAIC_VERIFY", 0);
-  cfg->use_gpu = envi("MOSAIC_USE_GPU", 1);
-  // 默认开 IPC:host-SHM 版每个中转字节要过 4 次 PCIe,而真实 NVLink 一次都不过,
-  // 会系统性地高估中转代价、让账本的分流决策"看起来"没收益(实测差 2.7×)。
-  cfg->nv_ipc = envi("MOSAIC_NV_IPC", 1);
+  // use_gpu 自动探测(2026-08-19:MOSAIC_USE_GPU env 删除)。无 CUDA 设备
+  // (Raven 登录节点跑离线回放)自动走纯 host;测试可程序内显式置 0。
+  {
+    int ndev = 0;
+    cfg->use_gpu = (cudaGetDeviceCount(&ndev) == cudaSuccess && ndev > 0) ? 1 : 0;
+  }
   g_log_level = envi("MOSAIC_LOG", 1);
   return mosaicSuccess;
 }

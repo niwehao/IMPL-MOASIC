@@ -244,8 +244,8 @@ static uint64_t kdesc_resolve_src(Comm* c, const void* payload, int shm_ring,
                                   int verbs_token, bool via_nic) {
   if (via_nic && c->use_nvsh && verbs_token >= 0)
     return (uint64_t)(uintptr_t)payload;       // NVSHMEM 接收环 = 设备内存
-  if (shm_ring >= 0 && shm_ring_is_dev(c->rx_ring[shm_ring]))
-    return (uint64_t)(uintptr_t)payload;       // CUDA IPC 设备环
+  if (shm_ring >= 0)
+    return (uint64_t)(uintptr_t)payload;       // CUDA IPC 设备环(payload 恒在设备)
   for (const auto& m : c->kdesc_maps)          // pinned host 池(mapped)
     if ((const uint8_t*)payload >= m.host && (const uint8_t*)payload < m.host + m.size)
       return m.dev + (uint64_t)((const uint8_t*)payload - m.host);
@@ -378,20 +378,6 @@ static void ES_drop(Comm* c) {
 static ResKind up_kind(bool via_nic) { return via_nic ? RES_NIC_UP : RES_NV_UP; }
 static ResKind dn_kind(bool via_nic) { return via_nic ? RES_NIC_DN : RES_NV_DN; }
 
-static bool tx_gate(Comm* c, bool via_nic, bool via_spine) {
-  uint64_t t = now_ns();
-  Bucket& b = c->buck[up_kind(via_nic)];
-  b.refill(t);
-  if (!b.ok()) return false;
-  if (via_spine) { c->buck[RES_SPINE_UP].refill(t); if (!c->buck[RES_SPINE_UP].ok()) return false; }
-  return true;
-}
-bool rx_gate(Comm* c, bool via_nic) {
-  uint64_t t = now_ns();
-  Bucket& b = c->buck[dn_kind(via_nic)];
-  b.refill(t);
-  return b.ok();
-}
 
 // 本 rank 自己的资源计数直接写进账本(比等自己的遥测新鲜)
 static void sync_own_discharge(Comm* c) {
@@ -1379,7 +1365,7 @@ void on_slice_arrived(Comm* c, const SliceHdr& h, void* payload, int shm_ring, i
   const int me = c->cfg.rank;
   const bool final_hop = (h.hop + 1 >= h.nhops);
 
-  const bool dev_payload = (shm_ring >= 0) && shm_ring_is_dev(c->rx_ring[shm_ring]);
+  const bool dev_payload = (shm_ring >= 0);   // 机内环 payload 恒在设备内存
   if (c->cfg.verify && h.crc && !dev_payload) {
     uint32_t got = crc32_buf(payload, h.len);
     if (got != h.crc) MLOG_ERR("E3001 CRC 失配 (%d→%d) off=%llu", h.src, h.dst,
@@ -1473,7 +1459,6 @@ static void pump_one_queue(Comm* c, std::deque<ReadySlice>& q, bool via_nic) {
     const int me = c->cfg.rank;
     const int peer = r.h.path[r.h.hop + 1];
     const bool via_spine = via_nic && (c->topo.rail(me) != c->topo.rail(peer));
-    if (!tx_gate(c, via_nic, via_spine)) return;
 
     if (via_nic && c->use_nvsh) {
       // S3 异步窗口:hop0 的 host-API put 直读 sendbuf,须等 caller 流上的
@@ -1549,7 +1534,7 @@ static void pump_one_queue(Comm* c, std::deque<ReadySlice>& q, bool via_nic) {
       // 在 caller(legacy)流挂着门等待时会被驱动 peer-copy 路径隐式序列化
       // (Raven 实测 E5002 集体卡死);SM 直写 NVLink 绕开(NCCL 同款)。
       // publish 必须按 reserve 序 ⇒ kdesc 满时先背压,不 reserve 不混用。
-      if (c->kdesc_active && ring && shm_ring_is_dev(ring)) {
+      if (c->kdesc_active && ring) {
         if (c->kdesc_pushed - c->kdesc_consumed >= c->kdesc_cap) return;  // 背压
         SliceHdr* hh = nullptr;
         void* pay = nullptr;
@@ -1725,11 +1710,6 @@ static void pump_shm(Comm* c) {
     ShmRing* ring = c->rx_ring[p];
     if (!ring) continue;
     for (int k = 0; k < 8; k++) {
-      // 限速**必须逐 slice 判**:一次 gate 放行 8×环数 个 slice 时,突发粒度
-      // (24MB)与整次传输(17.7MB)同量级,欠下的账在 collective 结束前根本
-      // 还不完 —— 实测 NVdn 跑到额定的 1.42 倍。deficit 语义只保证长期均值,
-      // 而这里的"长期"比测量窗口还长。
-      if (!rx_gate(c, false)) return;
       void* pay = nullptr;
       SliceHdr* hh = nullptr;
       if (!shm_ring_peek(ring, &pay, &hh)) break;
@@ -1830,19 +1810,18 @@ static void watchdog(Comm* c) {
            c->kdesc_ctr ? (unsigned long long)__atomic_load_n((uint64_t*)(c->kdesc_ctr + 64),
                                                               __ATOMIC_ACQUIRE) : 0ull,
            es->kq.size());
-  // 队头 slice 的身份 + 它当前过不过 tx_gate:队列非空却不动时,区分
-  // "被闸门挡住(ledger/PACE)"与"下游资源耗尽"(池水位在 nvsh 活性行)
+  // 队头 slice 的身份:队列非空却不动时定位卡点(池水位在 nvsh 活性行)
   {
     char hb[256]; int ho = 0;
     auto head = [&](const char* tag, std::deque<ReadySlice>& q, bool via_nic) {
       if (q.empty()) return;
       const SliceHdr& h = q.front().h;
       const int pe = h.path[h.hop + 1];
-      const bool sp = via_nic && (c->topo.rail(c->cfg.rank) != c->topo.rail(pe));
+      (void)via_nic;
       ho += snprintf(hb + ho, sizeof(hb) - ho,
-                     "%s[->r%d %uB hop%d s%u->d%u corr%u gate=%d] ", tag, pe,
+                     "%s[->r%d %uB hop%d s%u->d%u corr%u] ", tag, pe,
                      (unsigned)h.len, (int)h.hop, (unsigned)h.src, (unsigned)h.dst,
-                     (unsigned)(h.corr & 7), (int)tx_gate(c, via_nic, sp));
+                     (unsigned)(h.corr & 7));
     };
     head("nvq", es->ready_nv, false);
     head("nicq", es->ready_nic, true);
@@ -2277,10 +2256,9 @@ void engine_start(Comm* c) {
                                  (uint64_t)(uintptr_t)dp, stage_stride * (size_t)NST});
     }
     CUCHK(cudaMalloc(&c->relay_pool, sb * NRE), "malloc relay");
-    // NV 管的 payload 环:IPC 模式下放设备内存(= 模拟 NVLink 的 GPU↔GPU 直达路径),
-    // 句柄经环头(共享内存)交给对端。控制信息仍走共享内存 —— plan 要求的
-    // "共享内存划分区域模拟 NVLink"在控制面成立,数据面则更贴真实 NVLink。
-    if (c->cfg.nv_ipc) {
+    // NV 管的 payload 环:恒在设备内存(CUDA IPC,GPU↔GPU 直达;host-SHM
+    // payload 的模拟遗留路径已删,2026-08-19)。句柄经环头(共享内存)交给对端。
+    {
       const size_t ring_bytes = (size_t)NSHM * (size_t)c->cfg.slice_bytes;
       for (int p = 0; p < c->cfg.nranks; p++) {
         if (!c->tx_ring[p]) continue;
@@ -2305,26 +2283,16 @@ void engine_start(Comm* c) {
       }
       MLOG_INFO("NV 管 = CUDA IPC 设备环(%zu KB/环)", ring_bytes >> 10);
     }
-    // SHM 段钉页,D2H/H2D 才能走 DMA(不钉页 CUDA 会走一次内部弹跳缓冲)
-    for (int p = 0; p < c->cfg.nranks; p++) {
-      for (ShmRing* r : {c->tx_ring[p], c->rx_ring[p]}) {
-        if (!r) continue;
-        void* base = nullptr; size_t nb = 0;
-        shm_ring_region(r, &base, &nb);
-        if (!base) continue;
-        cudaError_t e = cudaHostRegister(base, nb,
-                                         cudaHostRegisterPortable | cudaHostRegisterMapped);
-        if (e != cudaSuccess && e != cudaErrorHostMemoryAlreadyRegistered)
-          MLOG_WARN("cudaHostRegister(SHM) 失败: %s(退化为可分页拷贝)", cudaGetErrorString(e));
-        else {
-          void* dp = nullptr;   // S3 二期:消费者核直读 SHM 环(区间映射登记)
-          if (cudaHostGetDevicePointer(&dp, base, 0) == cudaSuccess)
-            c->kdesc_maps.push_back({(const uint8_t*)base, (uint64_t)(uintptr_t)dp, nb});
-        }
-        cudaGetLastError();
-      }
-    }
+    // (SHM 段不再钉页:payload 恒在设备内存,共享内存只剩头/序号,CPU 直读写)
   } else {
+    // 纯 host 协议档(离线回放/无 GPU):机内环的 payload 需要设备内存,
+    // 有机内 peer 的形态不支持 —— fail-fast,别让它跑到 SIGSEGV。
+    for (int p = 0; p < c->cfg.nranks; p++)
+      if (c->tx_ring[p] || c->rx_ring[p]) {
+        MLOG_ERR("E5030 use_gpu=0 但存在机内 peer(G>1):该形态不支持");
+        c->err = "E5030 use_gpu=0 不支持机内 peer";
+        return;
+      }
     c->stage_pool = malloc(stage_stride * NST);
     c->relay_pool = malloc(sb * NRE);
   }
@@ -2378,32 +2346,10 @@ void engine_start(Comm* c) {
   }
 
   uint64_t t = now_ns();
-  // 非通告降速注入(模拟器 -flex_degrade_gpu 的真机对应物):只降**物理管**
-  // (token bucket),额定值/账本/下界照旧用通告值 —— 调度层"不知情",
-  // 只能靠检测器发现。语义与 Imp_Plan/02 §4 逐点对应。
-  double nic_phys = c->cfg.nic_gbps;
-  {
-    const char* dr = getenv("MOSAIC_DEGRADE_RANK");
-    const char* df = getenv("MOSAIC_DEGRADE_FACTOR");
-    if (dr && *dr && atoi(dr) == c->cfg.rank) {
-      double f = (df && *df) ? atof(df) : 4.0;
-      if (f > 1.0 && nic_phys > 0) {
-        nic_phys = nic_phys / f;
-        MLOG_WARN("注入:rank %d vNIC 非通告降速 ×%.1f(物理 %.2fG,通告仍 %.2fG)",
-                  c->cfg.rank, f, nic_phys, c->cfg.nic_gbps);
-      }
-    }
-  }
-  // 第三档(T5,真机为准):MOSAIC_THROTTLE=0 = **额定只喂决策,不做限速**。
-  // 纯不限速档(--nv 0 --nic 0)会把调度器的代价模型一并弄瞎(β=0 ⇒ 看不出
-  // NIC 瓶颈 ⇒ hotdst 全 DIRECT、relay=0,29346066-2156xx 实测)——此档给
-  // 真实额定建模 + 硬件全速执行。默认 1 = 旧行为(本机 regression 不受扰)。
-  const bool throttle = env_flag("MOSAIC_THROTTLE", 1) != 0;
-  c->buck[RES_NIC_UP].init(throttle ? nic_phys : 0, t);
-  c->buck[RES_NIC_DN].init(throttle ? nic_phys : 0, t);
-  c->buck[RES_NV_UP].init(throttle ? c->cfg.nv_gbps : 0, t);
-  c->buck[RES_NV_DN].init(throttle ? c->cfg.nv_gbps : 0, t);
-  c->buck[RES_SPINE_UP].init(throttle && c->cfg.spine_gbps > 0 ? c->cfg.spine_gbps / c->cfg.gpus_per_host : 0, t);
+  // 真机为准(2026-08-19):token bucket 限速与非通告降速注入(MOSAIC_THROTTLE/
+  // MOSAIC_DEGRADE_*)已删除 —— nv/nic/spine 额定值只喂决策层(账本 cap、
+  // PACE、波 deadline),数据面永不限速。Bucket 只剩 discharge 计数。
+  for (int k = 0; k < RES_KINDS; k++) c->buck[k].init();
 
   // 检测器与注入状态
   c->nominal_Bps = c->ledger.cap_Bps;             // 通告额定(检测器恢复基线)

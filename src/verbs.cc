@@ -44,8 +44,8 @@ struct VerbsPeer {
 struct VerbsCtx {
   ibv_context* ctx = nullptr;
   ibv_pd* pd = nullptr;
-  // send 与 recv 分开两个 CQ:recv 侧要受模拟限速门(rx_gate)控制、逐 slice
-  // 消费;send 完成(staging 回收)不能被它牵连着停住。
+  // send 与 recv 分开两个 CQ:recv 侧逐 slice 消费;send 完成(staging 回收)
+  // 不被 recv 侧牵连。
   ibv_cq* cq_send = nullptr;
   ibv_cq* cq_recv = nullptr;
   ibv_mr* mr_stage = nullptr;      // 发送:staging 池
@@ -54,13 +54,8 @@ struct VerbsCtx {
   size_t rx_slot_bytes = 0;
   int port = 1, gid_index = 3;
   std::vector<VerbsPeer> peer;
-  // 检测器 DN busy 语义需要"上一个完成被处理时,后面还压着完成没"。限速门
-  // 挡住时不能把完成丢回 CQ,用 1 槽暂存 + blocked 标记实现。
-  ibv_wc stash{};
-  bool has_stash = false;
-  bool rx_blocked = false;
   // O3 控制面槽池(MOSAIC_CTRL=verbs):小报文经数据 QP 发送。控制报文
-  // **不过** rx_gate / 检测器 / token bucket —— 与 TCP 控制面同口径
+  // 不进检测器/discharge 计数 —— 与 TCP 控制面同口径
   // (协议开销单独按 chA/chB_bytes 计量,禁零成本同步红线不破)。
   static constexpr int CTRL_SLOT = 2048;
   static constexpr int NCTRL = 64;
@@ -316,9 +311,7 @@ int verbs_ctrl_send(Comm* c, int peer, const void* msg, uint32_t n) {
 }
 
 // 轮询完成队列。返回处理的事件数。
-// recv 逐 slice 过 rx_gate:限速不允许时把完成事件留在 CQ 里不取 —— 预投槽
-// 不回收 → 发送端撞 RNR 退避,与 TCP 版"不读 socket 收窗收紧"同语义。
-// 控制报文(O3,首 4 字节 ≠ SLICE_MAGIC)不受 gate/检测器/bucket 影响,
+// 控制报文(O3,首 4 字节 ≠ SLICE_MAGIC)不进检测器/计数,
 // 到即处理、槽即补投 —— 与 TCP 控制面同语义。
 int verbs_poll(Comm* c) {
   VerbsCtx* v = VC(c);
@@ -350,13 +343,10 @@ int verbs_poll(Comm* c) {
     stage_release(c, slot);               // 发送完成 → staging 槽可回收
     done++;
   }
-  const bool prev_blocked = v->rx_blocked;
-  v->rx_blocked = false;
   int rx_done = 0;
   for (;;) {
     ibv_wc w1;
-    if (v->has_stash) { w1 = v->stash; v->has_stash = false; }
-    else if (ibv_poll_cq(v->cq_recv, 1, &w1) != 1) break;
+    if (ibv_poll_cq(v->cq_recv, 1, &w1) != 1) break;
     if (w1.status != IBV_WC_SUCCESS) {
       MLOG_ERR("E1025 recv wc 失败 status=%d(%s)", w1.status, ibv_wc_status_str(w1.status));
       continue;
@@ -383,13 +373,9 @@ int verbs_poll(Comm* c) {
       post_recv(c, peer, idx);
       continue;
     }
-    if (!rx_gate(c, true)) {           // 限速门:完成暂存,槽不补投 = RNR 背压
-      v->stash = w1; v->has_stash = true; v->rx_blocked = true;
-      break;
-    }
-    // DN busy 提示:本次调用里已有前序完成,或上次因限速门憋着完成 —— 说明
-    // 上一事件之后端口一直有排队(模拟器 _lg_arr>0 的对应物)
-    c->det_dn_hint = (rx_done > 0) || prev_blocked;
+    // DN busy 提示:本次调用里已有前序完成 —— 说明上一事件之后端口一直有排队
+    // (模拟器 _lg_arr>0 的对应物)
+    c->det_dn_hint = (rx_done > 0);
     rx_done++;
     v->peer[peer].posted--;
     SliceHdr h;

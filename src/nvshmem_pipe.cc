@@ -765,7 +765,7 @@ int nvsh_poll(Comm* c) {
       // seq%nslots 复用时**覆盖未消费的片**,静默丢失(全网 trace 里该片只有
       // 发端 post、无任何 deliv)。单 QP/同流交付本就有序,按序消费无额外等待;
       // 头没就绪就整个 peer 停住等下一轮镜像。
-      while (rx_gate(c, true)) {
+      for (;;) {
         int s = (int)(v->rx_next[p] % (uint64_t)v->nslots);
         size_t idx = (size_t)p * v->nslots + s;
         if (v->sig_shadow[idx] <= v->sig_seen[idx]) break;   // 下一片还没到
