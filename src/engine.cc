@@ -262,6 +262,10 @@ bool zerostream_arm(Comm* c) {
   c->kdesc_gen++;
   __atomic_store_n((uint64_t*)(c->kdesc_ctr + 192), c->kdesc_gen, __ATOMIC_RELEASE);
   __atomic_store_n((uint64_t*)(c->kdesc_ctr + 128), ~0ull, __ATOMIC_RELEASE);
+  // chgo 广播区跨代清零(排在 stream_cons 上,老核退出后、新核启动前;
+  // 不清的话上一代的退出广播(MSB)会让新核组员即刻误退)
+  cudaMemsetAsync((void*)(uintptr_t)(c->kdesc_prog_dev + 64 * sizeof(uint64_t)), 0,
+                  16 * sizeof(uint64_t), (cudaStream_t)c->stream_cons);
   {
     unsigned long long ring = c->kdesc_ring_dev, ctr = c->kdesc_ctr_dev,
                        prog = c->kdesc_prog_dev, start = c->kdesc_pushed,
@@ -2304,10 +2308,10 @@ void engine_start(Comm* c) {
           }
           if (cudaHostGetDevicePointer(&ring_d, ring, 0) != cudaSuccess ||
               cudaHostGetDevicePointer(&ctr_d, ctr, 0) != cudaSuccess ||
-              cudaMalloc(&prog_d, 64 * sizeof(uint64_t)) != cudaSuccess) {   // 上限 64 block
+              cudaMalloc(&prog_d, 96 * sizeof(uint64_t)) != cudaSuccess) {   // 64 prog + 16 chgo + 余量
             cudaFreeHost(ring); cudaFreeHost(ctr); return false;
           }
-          cudaMemset(prog_d, 0, 64 * sizeof(uint64_t));
+          cudaMemset(prog_d, 0, 96 * sizeof(uint64_t));
           memset(ctr, 0, 256);   // +0 head/+64 done/+128 stop/+160 input/+192 gen
           ((uint64_t*)((uint8_t*)ctr + 128))[0] = ~0ull;   // stop = 进行中
           c->kdesc_ring = (Comm::KDesc*)ring;

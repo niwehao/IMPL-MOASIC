@@ -74,6 +74,7 @@ int main() {
   for (int round = 0; round < 2; round++) {
     CK(cudaMemset(dst_d, 0, POOL));
     *(uint64_t*)(ctr + 128) = ~0ull;                     // stop 复位
+    CK(cudaMemset((uint8_t*)prog_d + 64 * sizeof(uint64_t), 0, 16 * sizeof(uint64_t)));  // chgo 清零(跨代)
     __sync_synchronize();
     unsigned long long ring_a = (unsigned long long)(uintptr_t)ring_d,
                        ctr_a = (unsigned long long)(uintptr_t)ctr_d,
@@ -135,7 +136,8 @@ int main() {
   // ── 代际退出(坑 #36 的命脉):核在等描述符时,host 把 gen 一改就必须退出。
   // 核绝不允许常驻 —— 常驻 × torch 的 cudaFree(设备级隐式同步)= 永久死锁。
   {
-    *(uint64_t*)(ctr + 128) = ~0ull;                     // stop 复位(进行中)
+    *(uint64_t*)(ctr + 128) = ~0ull;                     // stop 复位
+    CK(cudaMemset((uint8_t*)prog_d + 64 * sizeof(uint64_t), 0, 16 * sizeof(uint64_t)));  // chgo 清零(跨代)(进行中)
     __sync_synchronize();
     unsigned long long ring_a = (unsigned long long)(uintptr_t)ring_d,
                        ctr_a = (unsigned long long)(uintptr_t)ctr_d,

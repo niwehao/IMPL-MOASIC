@@ -133,9 +133,34 @@ extern "C" __global__ void mosaic_consume(u64 ring_a, u64 ctr_a, u64 prog_a,
   const u32 bpg = gridDim.x / nch;          // 每 channel block 数
   const u32 mych = blockIdx.x / bpg;        // 本 block 的 channel
   const u32 lane = blockIdx.x % bpg;        // 组内条带角色
+  // PCIe 轮询解耦:**每 channel 只有 lane0 轮询 pinned(head/stop/gen)**,
+  // 并把进度广播到设备内存 chgo[ch](prog 区 +64 之后);组员只轮询设备字 ——
+  // 轮询者数量 ∝ nch 而不是 blocks,拷贝宽度(bpg)可以放大而不打爆 PCIe。
+  // 编码:低 63 位 = 可消费上界(head 或 stop),MSB = 退出信号。
+  volatile u64* chgo = prog + 64 + mych;
   u64 i = start;
   for (;;) {
     if (threadIdx.x == 0) {
+      if (lane != 0) {                      // 组员:等 lane0 的设备广播
+        for (;;) {
+          u64 g = *chgo;
+          if (g & 0x8000000000000000ull) {
+            u64 lim = g & ~0x8000000000000000ull;
+            if (i >= lim) { s_state = 1; break; }
+          }
+          if ((g & ~0x8000000000000000ull) > i) { s_state = 0; break; }
+          __nanosleep(500);
+        }
+        if (s_state == 0) {
+          if ((u32)(i % nch) != mych) {
+            s_state = 2;
+          } else {
+            __threadfence();
+            volatile u64* d = (volatile u64*)(ring_a + (u64)((u32)i & (cap - 1)) * 32);
+            s_desc[0] = d[0]; s_desc[1] = d[1]; s_desc[2] = d[2];
+          }
+        }
+      } else {
       // **PCIe 纪律**:等待循环里的每一次 mapped-host 读写都是一笔 PCIe 事务。
       // 节拍取 1µs(500ns × 密集读会把 BAR 打满,饿死同一条 PCIe 上的 NIC
       // 门铃/镜像;4µs 则给每描述符交接叠 ~4µs 量化延迟)。
@@ -149,6 +174,7 @@ extern "C" __global__ void mosaic_consume(u64 ring_a, u64 ctr_a, u64 prog_a,
         __nanosleep(1000);
       }
       if (s_state == 0) {
+        *chgo = i + 1;                        // 广播:本 channel 可消费到 i+1
         if ((u32)(i % nch) != mych) {
           s_state = 2;                        // 别的 channel 的描述符:计过不拷
         } else {
@@ -156,6 +182,9 @@ extern "C" __global__ void mosaic_consume(u64 ring_a, u64 ctr_a, u64 prog_a,
           volatile u64* d = (volatile u64*)(ring_a + (u64)((u32)i & (cap - 1)) * 32);
           s_desc[0] = d[0]; s_desc[1] = d[1]; s_desc[2] = d[2];
         }
+      } else {
+        *chgo = i | 0x8000000000000000ull;    // 退出广播(上界 = i,组员干完即退)
+      }
       }
     }
     __syncthreads();
