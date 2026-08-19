@@ -214,7 +214,10 @@ static mosaicResult_t submit_coll(Comm* c,
     //     流上等 done_flag,本调用提交后即返回;下一次提交先隐式收尾上一笔
     //     (一代在飞)。窗口内引擎零 CUDA 调用(kdesc 消费者核搬运)。
     //   caller_stream == 0(bench 等无流调用方)⇒ host 阻塞等收尾。
-    const bool stream_ordered = caller_stream != 0 && c->cfg.use_gpu && c->zs_cap;
+    // 流序完成当前只在 verbs 数据面启用:nvsh 面的 kdesc 化(零流窗口)在
+    // Raven Gate 收敛前保持阻塞路径(clean-plan §2 待收敛项)。
+    const bool stream_ordered = caller_stream != 0 && c->cfg.use_gpu && c->zs_cap &&
+                                !c->use_nvsh;
     if (stream_ordered || (zerostream_on() && c->cfg.use_gpu && c->kdesc_ctr)) {
       // ── S3(a):**零流执行进同步档**(MOSAIC_ZEROSTREAM=1,默认关;
       // 待收敛项,Raven Gate 裁决 —— 见清理计划 §2)。
