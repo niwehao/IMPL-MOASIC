@@ -80,7 +80,8 @@ int main() {
                        prog_a = (unsigned long long)(uintptr_t)prog_d,
                        start = pushed, my_gen = 1;
     unsigned int cap = CAP;
-    void* params[6] = {&ring_a, &ctr_a, &prog_a, &start, &cap, &my_gen};
+    unsigned int nch = 2;   // 单测覆盖多 channel 语义(grid=4 → bpg=2)
+    void* params[7] = {&ring_a, &ctr_a, &prog_a, &start, &cap, &my_gen, &nch};
     if (launch(fn, BLOCKS, 1, 1, THREADS, 1, 1, 0, sg, params, nullptr) != 0) {
       fprintf(stderr, "launch fail\n"); return 1;
     }
@@ -141,7 +142,8 @@ int main() {
                        prog_a = (unsigned long long)(uintptr_t)prog_d,
                        start = pushed, my_gen = 1;
     unsigned int cap = CAP;
-    void* params[6] = {&ring_a, &ctr_a, &prog_a, &start, &cap, &my_gen};
+    unsigned int nch = 2;   // 单测覆盖多 channel 语义(grid=4 → bpg=2)
+    void* params[7] = {&ring_a, &ctr_a, &prog_a, &start, &cap, &my_gen, &nch};
     if (launch(fn, BLOCKS, 1, 1, THREADS, 1, 1, 0, sg, params, nullptr) != 0) {
       fprintf(stderr, "gen-test launch fail\n"); return 1;
     }

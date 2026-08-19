@@ -97,8 +97,13 @@ extern "C" __global__ void mosaic_mirror(u64 cfg_a, u64 my_gen) {
   }
 }
 
+// 并行度模型(v2):block 按「描述符序号 % nch」分成 nch 个 channel,每
+// channel BPG=gridDim/nch 个 block 条带同拷一个描述符 —— 多个描述符(不同
+// peer 的发送/交付)并行搬运,而不是全体 block 串行逐个吃。done 仍 =
+// min(prog[*]) 的连续前缀:非本 channel 的序号在 head 越过后立即计过,
+// 本 channel 的序号拷完才计过 ⇒ 前缀语义不变。gridDim 必须整除 nch。
 extern "C" __global__ void mosaic_consume(u64 ring_a, u64 ctr_a, u64 prog_a,
-                                          u64 start, u32 cap, u64 my_gen) {
+                                          u64 start, u32 cap, u64 my_gen, u32 nch) {
   volatile u64* head = (volatile u64*)(ctr_a);
   volatile u64* done = (volatile u64*)(ctr_a + 64);
   volatile u64* stop = (volatile u64*)(ctr_a + 128);
@@ -125,6 +130,9 @@ extern "C" __global__ void mosaic_consume(u64 ring_a, u64 ctr_a, u64 prog_a,
     for (u32 b = 0; b < gridDim.x; b++) { u64 v = prog[b]; if (v < m) m = v; }
     if (m != ~0ull && m > m_floor && m > *done) *done = m;
   };
+  const u32 bpg = gridDim.x / nch;          // 每 channel block 数
+  const u32 mych = blockIdx.x / bpg;        // 本 block 的 channel
+  const u32 lane = blockIdx.x % bpg;        // 组内条带角色
   u64 i = start;
   for (;;) {
     if (threadIdx.x == 0) {
@@ -141,18 +149,33 @@ extern "C" __global__ void mosaic_consume(u64 ring_a, u64 ctr_a, u64 prog_a,
         __nanosleep(1000);
       }
       if (s_state == 0) {
-        __threadfence_system();               // head 之后再读描述符(acquire)
-        volatile u64* d = (volatile u64*)(ring_a + (u64)((u32)i & (cap - 1)) * 32);
-        s_desc[0] = d[0]; s_desc[1] = d[1]; s_desc[2] = d[2];
+        if ((u32)(i % nch) != mych) {
+          s_state = 2;                        // 别的 channel 的描述符:计过不拷
+        } else {
+          __threadfence_system();             // head 之后再读描述符(acquire)
+          volatile u64* d = (volatile u64*)(ring_a + (u64)((u32)i & (cap - 1)) * 32);
+          s_desc[0] = d[0]; s_desc[1] = d[1]; s_desc[2] = d[2];
+        }
       }
     }
     __syncthreads();
     if (s_state == 1) break;
+    if (s_state == 2) {                       // 跳过:推进 prog 即可
+      __syncthreads();
+      if (threadIdx.x == 0) {
+        prog[blockIdx.x] = i + 1;
+        __threadfence();
+        __threadfence_system();
+        if ((i & 15) == 0) refresh_done(start);
+      }
+      i++;
+      __syncthreads();
+      continue;
+    }
     const u64 len = s_desc[2];
-    // 条带划分:block j 拷 [j*chunk, min(len,(j+1)*chunk));chunk 16B 对齐,
-    // 使各条带首地址相对 16B 网格不漂移(向量宽度)
-    const u64 chunk = ((len + gridDim.x - 1) / gridDim.x + 15) & ~15ull;
-    const u64 lo = (u64)blockIdx.x * chunk;
+    // 条带划分(channel 组内 bpg 个 block 分同一描述符):chunk 16B 对齐
+    const u64 chunk = ((len + bpg - 1) / bpg + 15) & ~15ull;
+    const u64 lo = (u64)lane * chunk;
     const u64 hi = lo + chunk < len ? lo + chunk : len;
     if (lo < len) {
       const unsigned char* src = (const unsigned char*)s_desc[0] + lo;

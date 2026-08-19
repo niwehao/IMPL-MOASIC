@@ -126,7 +126,28 @@ static CuDrv& cu_drv() {
 // 交付拷贝由消费者核自己做,host 在完成路径上只写 pinned 内存
 // (推描述符 / 写 stop)。契约与内核见 consumer_kernel.cu。
 #include "consumer_kernel_ptx.h"
-static const unsigned KCONS_BLOCKS = 4, KCONS_THREADS = 256;
+// 消费者核并行度:blocks = nch × bpg(consumer_kernel.cu 的 channel 模型)。
+// MOSAIC_KCONS="blocks,nch" 为**临时扫描开关**(A100 机内带宽标定用,定档后删)。
+static unsigned kcons_blocks() {
+  static unsigned v = [] {
+    const char* e = getenv("MOSAIC_KCONS");
+    unsigned b = 8, n = 4;
+    if (e && *e) sscanf(e, "%u,%u", &b, &n);
+    (void)n;
+    return b;
+  }();
+  return v;
+}
+static unsigned kcons_nch() {
+  static unsigned v = [] {
+    const char* e = getenv("MOSAIC_KCONS");
+    unsigned b = 8, n = 4;
+    if (e && *e) sscanf(e, "%u,%u", &b, &n);
+    return n;
+  }();
+  return v;
+}
+static const unsigned KCONS_THREADS = 256;
 static bool kcons_init(Comm* c) {
   CuDrv& d = cu_drv();
   if (!d.ok) return false;
@@ -245,9 +266,9 @@ bool zerostream_arm(Comm* c) {
     unsigned long long ring = c->kdesc_ring_dev, ctr = c->kdesc_ctr_dev,
                        prog = c->kdesc_prog_dev, start = c->kdesc_pushed,
                        gen = c->kdesc_gen;
-    unsigned int cap = c->kdesc_cap;
-    void* params[6] = {&ring, &ctr, &prog, &start, &cap, &gen};
-    if (d.launch(c->kcons_fn, KCONS_BLOCKS, 1, 1, KCONS_THREADS, 1, 1, 0,
+    unsigned int cap = c->kdesc_cap, nch = kcons_nch();
+    void* params[7] = {&ring, &ctr, &prog, &start, &cap, &gen, &nch};
+    if (d.launch(c->kcons_fn, kcons_blocks(), 1, 1, KCONS_THREADS, 1, 1, 0,
                  c->stream_cons, params, nullptr) != 0)
       return false;                     // 没起来,无需叫停
   }
@@ -2283,10 +2304,10 @@ void engine_start(Comm* c) {
           }
           if (cudaHostGetDevicePointer(&ring_d, ring, 0) != cudaSuccess ||
               cudaHostGetDevicePointer(&ctr_d, ctr, 0) != cudaSuccess ||
-              cudaMalloc(&prog_d, KCONS_BLOCKS * sizeof(uint64_t)) != cudaSuccess) {
+              cudaMalloc(&prog_d, 64 * sizeof(uint64_t)) != cudaSuccess) {   // 上限 64 block
             cudaFreeHost(ring); cudaFreeHost(ctr); return false;
           }
-          cudaMemset(prog_d, 0, KCONS_BLOCKS * sizeof(uint64_t));
+          cudaMemset(prog_d, 0, 64 * sizeof(uint64_t));
           memset(ctr, 0, 256);   // +0 head/+64 done/+128 stop/+160 input/+192 gen
           ((uint64_t*)((uint8_t*)ctr + 128))[0] = ~0ull;   // stop = 进行中
           c->kdesc_ring = (Comm::KDesc*)ring;
