@@ -187,6 +187,16 @@ struct Topo {
   int host(int r) const { return r / G; }
   int rail(int r) const { return r % G; }
   bool same_host(int a, int b) const { return host(a) == host(b); }
+  // NIC 物理单元:nic_leader[r] = 与 r 共享同一块物理 HCA 的同机 rank 里
+  // local_rank 最小者(共享只可能发生在同机)。由 net_setup 尾的
+  // nic_unit_exchange 运行时探测填写(SHM 同机共识 + 跨机 pairwise 交换);
+  // 默认恒等 = 每 rank 私有 NIC(本机 world=2、离线回放不变)。
+  // NIC 账一律记在 leader 的资源位上 —— 节点共享 HCA(如 Raven 每节点
+  // 1×HDR200 喂 4 GPU)不再被注水当成 4 根独立管子错误分流
+  // (log_raven.md 2026-08-21「资源单元」条)。
+  uint8_t nic_leader[MAX_RANKS] = {0};
+  int nic_res_up(int r) const { return res(nic_leader[r], RES_NIC_UP); }
+  int nic_res_dn(int r) const { return res(nic_leader[r], RES_NIC_DN); }
 
   // pair (s,d) 上第 c 条 corridor 的链;返回 false = 该 corridor 对本 pair 不可用
   bool chain_of(int s, int d, int c, Chain* out) const;
@@ -213,6 +223,11 @@ struct Ledger {
   // 他人 charges 按发布者分开存,这样收到某 dst 的新一份就整体替换旧的
   // (通道 B 的"只存最新一份"语义,单写者 ⇒ 不会分叉)
   std::vector<std::vector<uint64_t>> peer_charge;  // [publisher][res]
+  // NIC 单元聚合:charge 都记 leader 位,但 discharge 是每 rank 按自己的
+  // Bucket 计数**绝对值赋值**的(engine.cc:449/1365)—— 共享 HCA 的单元里,
+  // leader 位的在途要把成员位的 discharge 也扣掉。disch_agg[leader_res] =
+  // 成员的 res 下标表(nic_unit_exchange 后由 engine_start 填;空 = 旧行为)
+  std::vector<std::vector<int>> disch_agg;
 
   void init(int nres, int nranks);
   uint64_t outstanding(int res) const;
@@ -300,6 +315,9 @@ struct Comm {
   int epfd = -1;
   void* verbs = nullptr;           // verbs.cc 的上下文(RoCE 数据面);null = TCP
   bool use_verbs = false;
+  // NIC 单元探测(nic_unit_exchange 填):每 rank 所用物理口的速率(Gbps)。
+  // 账本 cap 只取 leader 位;非 leader 的 NIC 资源位 cap=0(账全记 leader)
+  double nic_unit_gbps[MAX_RANKS] = {0};
   void* erpc = nullptr;            // erpc_ctrl.cc 的上下文(控制面兼容档);null = 未启用
 
   // ---- CUDA ----
@@ -383,6 +401,13 @@ struct Comm {
   // P2 定向遥测:各 dst 经 CT_DEMAND 捎带的"对我的读集"(bit0-4=ResKind,
   // bit5=fab)。初值 INTENT_FULL(意图未到前保守全量发);最新值胜出。
   std::vector<uint8_t> peer_intent;
+  // 走廊承诺位(中转义务门,log_raven.md 2026-08-21):每个 dst 在 CT_DEMAND 里
+  // 捎带 1 字节 —— 本 coll 它是否可能计划非直发路径(=1 才可能产生中转义务)。
+  // coll_try_finish 只等承诺位=1 的 dst 的 FIN;全 0(如共享 HCA 拓扑上的
+  // uniform)= 完成判据与直发等价,零额外耦合。=0 的 dst 必须兑现承诺
+  // (emit_wave 强制 c_limit=1)。
+  std::vector<uint8_t> peer_corr_intent;
+  uint8_t my_corr_intent = 0;
   std::vector<uint64_t> demand_check;    // verify 档:推导矩阵暂存,收齐后对拍
   bool demand_check_on = false;
   // O0 相位时戳(MOSAIC_PHASE=1 时每 collective 打一行)
@@ -544,6 +569,11 @@ void shm_ring_stat(ShmRing* r, uint64_t* head, uint64_t* tail, int* inflight, in
 void stage_release(Comm* c, int slot);
 // 建链期的阻塞式小报文交换(经已有 TCP 数据连接;verbs 用它换 QP 信息)
 int  net_blocking_exchange(Comm* c, int peer, const void* mine, void* remote, size_t n);
+// NIC 物理单元共识(verbs 建链后、event 线程启动前调;net.cc):
+// 同机经 SHM 表、跨机经 pairwise 交换,填 topo.nic_leader[] 与 nic_unit_gbps[]。
+// 无 verbs 面(TCP/离线)= 不动恒等映射。
+void nic_unit_exchange(Comm* c);
+bool verbs_nic_ident(Comm* c, uint64_t* key, double* gbps);
 
 // net.cc:已组帧(含 CtrlHdr)报文直接走 TCP 队列
 int  ctrl_send_tcp(Comm* c, int peer, const void* framed, uint32_t n);

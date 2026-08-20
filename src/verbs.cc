@@ -66,6 +66,8 @@ struct VerbsCtx {
   bool roce = true;                // 端口链路层:RoCE(GRH)| IB(LID 路由)
   ibv_mtu mtu = IBV_MTU_1024;      // 端口 active MTU(与对端取 min)
   uint16_t lid = 0;                // IB LID(RoCE 恒 0)
+  uint64_t dev_key = 0;            // 设备身份 hash(devname:port)—— NIC 单元共识用
+  double link_gbps = 0;            // 端口物理速率(active_speed × width)
   // ── 数据面缓冲(data_plane 才建)
   ibv_mr* mr_stage_hdr = nullptr;  // 发送:host 头池(engine 的 stage_hdr_pool)
   ibv_mr* mr_stage_pay = nullptr;  // 发送:host pinned payload 池(engine 的 stage_pay_pool)
@@ -256,6 +258,27 @@ int verbs_setup(Comm* c, bool data_plane) {
     v->roce = (pa.link_layer == IBV_LINK_LAYER_ETHERNET);
     v->mtu = pa.active_mtu;
     v->lid = v->roce ? 0 : pa.lid;
+    // 设备身份 + 物理口速率(NIC 单元探测:同机同 devkey ⇒ 共享同一块 HCA)
+    {
+      const char* nm = ibv_get_device_name(v->ctx->device);
+      uint64_t h = 1469598103934665603ull;                       // FNV-1a
+      for (const char* p = nm; nm && *p; p++) { h ^= (uint8_t)*p; h *= 1099511628211ull; }
+      h ^= (uint8_t)v->port; h *= 1099511628211ull;
+      v->dev_key = h ? h : 1;
+      double lane = 0;                                           // Gbps / lane(编码值见 IBTA)
+      switch (pa.active_speed) {
+        case 1: lane = 2.5; break;   case 2: lane = 5; break;
+        case 4: lane = 10; break;    case 8: lane = 10.3; break;
+        case 16: lane = 14.06; break; case 32: lane = 25.78; break;
+        case 64: lane = 50; break;   case 128: lane = 100; break;
+        default: lane = 0; break;
+      }
+      int width = pa.active_width == 1 ? 1 : pa.active_width == 2 ? 4
+                : pa.active_width == 4 ? 8 : pa.active_width == 8 ? 12 : 0;
+      v->link_gbps = lane * width;
+      MLOG_INFO("NIC 单元:%s port %d key=%016llx 物理口 %.0f Gbps", nm, v->port,
+                (unsigned long long)v->dev_key, v->link_gbps);
+    }
   }
   // GID:RoCE v2 惯例 index 3;IB 只用 index 0(且仅当对端无 LID 时才进 GRH)
   v->gid_index = getenv("MOSAIC_GID_INDEX") ? atoi(getenv("MOSAIC_GID_INDEX"))
@@ -566,6 +589,15 @@ int verbs_poll(Comm* c) {
 void verbs_repost(Comm* c, int token) {
   if (token < 0) return;
   post_recv(c, token >> 20, token & 0xFFFFF);
+}
+
+// NIC 物理身份(nic_unit_exchange 用):false = 无 verbs 面(TCP/离线形态)
+bool verbs_nic_ident(Comm* c, uint64_t* key, double* gbps) {
+  VerbsCtx* v = VC(c);
+  if (!v || !v->ctx) return false;
+  *key = v->dev_key;
+  *gbps = v->link_gbps;
+  return true;
 }
 
 }  // namespace mosaic

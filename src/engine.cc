@@ -129,17 +129,21 @@ static CuDrv& cu_drv() {
 #include "consumer_kernel_ptx.h"
 // 消费者核并行度:blocks = nch × bpg(consumer_kernel.cu 的 channel 模型)。
 // MOSAIC_KCONS="blocks,nch,threads":容量参数(不改数据面走法)。
-// 默认 8,4,512 = A100 标定(Result/raven-0819-gpudev-intra):
-//   e2e 最优带宽/干扰折中 —— 32MB/pair 410Gbps、MoE e2e 与 8,4,256 持平;
-//   更多 block 提纯 A2A 但训练重叠期抢 SM(16 块时 bwd +90%),勿盲目加大。
+// 默认 4,4,512 = 4×4 Raven MoE e2e 标定(log_raven.md 2026-08-21 R2 消融:
+//   4 blk iter 198.4ms < 6 blk 206.0 < 8 blk 218.0 << 16 blk 333.3)——
+//   更多 block 提纯 A2A 但训练重叠期抢 SM(16 块时 bwd +80%),勿盲目加大;
+//   更少(2,2)拷贝宽度不足,fwd a2a 反升。调参必须跑 MoE e2e,不许用
+//   纯 A2A 定档(CLAUDE.md 补充 H)。
 static void kcons_cfg(unsigned* b, unsigned* n, unsigned* t) {
   static unsigned vb = 0, vn = 0, vt = 0;
   if (!vb) {
-    vb = 8; vn = 4; vt = 512;
+    vb = 4; vn = 4; vt = 512;
     const char* e = getenv("MOSAIC_KCONS");
     if (e && *e) sscanf(e, "%u,%u,%u", &vb, &vn, &vt);
     if (vt < 32) vt = 32;
     if (vt > 1024) vt = 1024;
+    if (vn < 1) vn = 1;
+    if (vn > vb) vn = vb;   // blocks<channels ⇒ 每 channel 0 block = 非法访存(29425220-002012)
   }
   *b = vb; *n = vn; *t = vt;
 }
@@ -400,6 +404,7 @@ struct EngineState {
   // demand_got 永远停在半路 = 全局死锁(坑 #42,29355321-183004 实测 got=25/31)。
   std::vector<std::vector<uint64_t>> pend_rows;  // [coll_id % PEND_SLOTS][n*n]
   std::vector<std::vector<uint8_t>> pend_seen;   // [coll_id % PEND_SLOTS][n] 该行到了没
+  uint8_t pend_cintent[PEND_SLOTS][MAX_RANKS] = {{0}};  // 行捎带的走廊承诺位,随行寄存
   std::vector<int> pend_cnt;
   // pend 槽属于哪个 coll_id:hint(O2)允许 rank 间跨 collective 的偏斜变大,
   // 槽位仅按 cid&3 复用会把 4 个 collective 前的陈旧行当成本次的 —— 记录归属,
@@ -654,7 +659,10 @@ static void emit_wave(Comm* c) {
     if (s == me || d.remaining[s] == 0) continue;
     uint64_t quota = (waves_left <= 1) ? d.remaining[s]
                                        : (d.remaining[s] + waves_left - 1) / waves_left;
-    int cl[NCORR], ncl = c->topo.corridors_of(s, me, eff_C(c), cl);
+    // 承诺兑现:corridor_intent_bit=0 的 coll 只许直发 —— 中转义务门凭承诺位
+    // 放行别人收尾,违背 = 对端已拆核,中转片静默丢失
+    int cl[NCORR], ncl = c->topo.corridors_of(
+        s, me, c->my_corr_intent ? eff_C(c) : 1, cl);
     if (ncl == 0) continue;
 
     uint64_t per_corr[NCORR] = {0};
@@ -774,7 +782,15 @@ static void emit_wave(Comm* c) {
   d.wave_idx++;
 }
 
-void engine_test_emit_wave(Comm* c) { emit_wave(c); }
+static uint8_t corridor_intent_bit(Comm* c);
+void engine_test_emit_wave(Comm* c) {
+  // 回放 harness 不走 demand 块:走廊承诺位就地按同一谓词补算
+  // (rcounts 从 remaining 同步 —— 真路径里 remaining 正是从 rcounts 来的)
+  for (int s = 0; s < c->cfg.nranks; s++)
+    if (s != c->cfg.rank) c->rcounts[s] = c->dst.remaining[s];
+  c->my_corr_intent = corridor_intent_bit(c);
+  emit_wave(c);
+}
 
 // DIRECT:不需要 dst 协调,每个 src 用全局矩阵自己算自己的行(诊断位)
 static void apply_policy(Comm* c, int peer, uint16_t wave, const PolicyEnt* e, int ne);
@@ -831,6 +847,44 @@ static void compute_intent(Comm* c, std::vector<uint8_t>& out) {
   }
   if (need_fab)
     for (int r = 0; r < n; r++) out[r] |= INTENT_FAB;
+}
+
+// ─────────────────────────────────────────────────────────── 走廊承诺位
+// dst 视角:本 coll 我是否可能给任何 src 计划非直发路径(=可能产生中转义务)。
+// 判据 = 存在某条非直发链,其 NIC 资源(**按物理单元**,topo.nic_leader)与
+// 直发不同 —— 即中转真能把 NIC 负载挪到另一根物理管子。共享 HCA 拓扑
+// (Raven 每节点 1×HDR200)下 RX/TX 中转与直发落同一单元 ⇒ 恒 0 ⇒
+// dst 承诺全程直发,coll_try_finish 的中转义务门对它免除。
+// 多 rail / 每 GPU 私有 NIC 的拓扑自动变 1(方法论:拓扑推导,零集群硬编码)。
+// 位=0 时 emit_wave 强制 c_limit=1,承诺必须兑现(否则义务门失效 = 静默丢中转片)。
+static uint8_t corridor_intent_bit(Comm* c) {
+  if (c->cfg.sched != MOSAIC_SCHED_MOSAIC || c->cfg.corridors <= 1) return 0;
+  if (c->topo.net_rail) return 1;    // rail 档跨轨无直连,结构性依赖中转
+  const int n = c->cfg.nranks, me = c->cfg.rank;
+  int cl[NCORR], res_d[16], res_c[16];
+  for (int s = 0; s < n; s++) {
+    if (s == me || c->rcounts[s] == 0 || c->topo.same_host(s, me)) continue;
+    Chain dch;
+    if (!c->topo.chain_of(s, me, CORR_DIRECT, &dch)) continue;
+    int nd = c->topo.chain_res(dch, res_d);
+    int ncl = c->topo.corridors_of(s, me, c->cfg.corridors, cl);
+    for (int i = 0; i < ncl; i++) {
+      if (cl[i] == CORR_DIRECT) continue;
+      Chain ch;
+      if (!c->topo.chain_of(s, me, cl[i], &ch)) continue;
+      int nc = c->topo.chain_res(ch, res_c);
+      for (int k = 0; k < nc; k++) {
+        if (res_c[k] >= n * RES_KINDS) continue;            // fabric 聚合账不算
+        int kind = res_c[k] % RES_KINDS;
+        if (kind != RES_NIC_UP && kind != RES_NIC_DN) continue;
+        bool in_direct = false;
+        for (int q = 0; q < nd; q++)
+          if (res_d[q] == res_c[k]) { in_direct = true; break; }
+        if (!in_direct) return 1;
+      }
+    }
+  }
+  return 0;
 }
 
 // ─────────────────────────────────────────────────────────── collective 起止
@@ -1178,12 +1232,18 @@ static void coll_try_finish(Comm* c) {
   // 清了还不够 —— 我可能仍要为别的 (src,dst) 对中转,而中转片何时到、
   // 是否会来,本 rank 无法预知(路径由各 dst 的波策略动态定)。
   // FIN(d) ⇔ d 已收齐 ⇔ 经我中转给 d 的字节已全部过手,且 d 不会再发
-  // 路由经我的波 ⇒ 集齐全体 FIN 后中转义务必然为空,拆消费者核才安全
-  // (gated 下核一拆,迟到的中转片就无人搬运 —— 引擎不许兜底调 CUDA)。
+  // 路由经我的波 ⇒ 只需等**承诺位=1 的 dst**(corridor_intent_bit;=0 的
+  // dst 已承诺全程直发,不可能给我中转义务)。位随 CT_DEMAND 行到,所以先
+  // 等行收齐(demand_got)再判 —— SSP 的快速启动不受影响,只是收尾多等
+  // 几条本来就在路上的小报文。承诺全 0(共享 HCA 拓扑 uniform)= 零耦合。
   // 直发调度(direct/fast)、单机形态、C=1 无中转,不受此门。
   if (c->cfg.sched == MOSAIC_SCHED_MOSAIC && c->cfg.corridors > 1 &&
-      c->cfg.nranks > c->cfg.gpus_per_host &&
-      es->fin_got < c->cfg.nranks - 1) return;
+      c->cfg.nranks > c->cfg.gpus_per_host) {
+    if (es->demand_got < c->cfg.nranks - 1) return;
+    for (int p = 0; p < c->cfg.nranks; p++)
+      if (p != c->cfg.rank && !c->peer_corr_intent.empty() &&
+          c->peer_corr_intent[p] && !c->peer_fin[p]) return;
+  }
   // **坑 #51**:零流档也不短路 h2d 检查 —— 自拷贝、以及 kdesc_resolve_src
   // 失败时回退的交付拷贝**仍在 h2d 流上**,短路掉就可能在它们落盘前宣布完成,
   // torch 随即读走半成品的 recvbuf(现象:训练 loss 轻微漂且逐次不同)。
@@ -1287,13 +1347,19 @@ void on_ctrl_msg(Comm* c, int peer, const CtrlHdr& h, const void* body) {
       if (h.len >= sizeof(CtrlHdr) + sizeof(uint64_t) * n + n &&
           (size_t)c->cfg.rank < (size_t)n && !c->peer_intent.empty())
         c->peer_intent[peer] = ((const uint8_t*)body)[sizeof(uint64_t) * n + c->cfg.rank];
+      // 走廊承诺位(行尾 1B;中转义务门读它,见 coll_try_finish)
+      const uint8_t cintent =
+          h.len >= sizeof(CtrlHdr) + sizeof(uint64_t) * n + n + 1
+              ? ((const uint8_t*)body)[sizeof(uint64_t) * n + n] : 0;
       if (cid == c->coll_id && es->demand_sent && !es->coll_started) {
         memcpy(&c->demand[(size_t)peer * n], row, sizeof(uint64_t) * n);
+        if (!c->peer_corr_intent.empty()) c->peer_corr_intent[peer] = cintent;
         es->demand_got++;
       } else if (cid == c->coll_id && c->ssp_active && es->coll_started) {
         // P1 SSP:collective 已开跑,行到了就后台刷新(供结束时快照 → 下次
         // PACE/hint 用;本次注水只读本地列,不受影响)
         memcpy(&c->demand[(size_t)peer * n], row, sizeof(uint64_t) * n);
+        if (!c->peer_corr_intent.empty()) c->peer_corr_intent[peer] = cintent;
         es->demand_got++;
       } else {                                   // 提前到货,先寄存
         int si = cid & (PEND_SLOTS - 1);
@@ -1307,11 +1373,13 @@ void on_ctrl_msg(Comm* c, int peer, const CtrlHdr& h, const void* body) {
                      si, es->pend_cid[si], c->coll_id, cid, PEND_SLOTS);
           slot.assign((size_t)n * n, 0);
           std::fill(es->pend_seen[si].begin(), es->pend_seen[si].end(), 0);
+          memset(es->pend_cintent[si], 0, sizeof(es->pend_cintent[si]));
           es->pend_cnt[si] = 0;
           es->pend_cid[si] = cid;
         }
         if ((int)slot.size() != n * n) slot.assign((size_t)n * n, 0);
         memcpy(&slot[(size_t)peer * n], row, sizeof(uint64_t) * n);
+        es->pend_cintent[si][peer] = cintent;
         es->pend_seen[si][peer] = 1;
         es->pend_cnt[si]++;
       }
@@ -2124,8 +2192,9 @@ static void event_loop(Comm* c) {
           memset(c->ev_seg_max, 0, sizeof(c->ev_seg_max));
         }
         MLOG_DBG("demand 块进入(coll=%d)", c->coll_id);
-        // 报文 = 我的行(n×8B)+ P2 读集意图位图(n×1B,捎带零新增条数)
-        std::vector<uint8_t> body(sizeof(uint64_t) * n + n);
+        // 报文 = 我的行(n×8B)+ P2 读集意图位图(n×1B)+ 走廊承诺位(1B,
+        // 中转义务门用,见 corridor_intent_bit)—— 全部捎带,零新增条数
+        std::vector<uint8_t> body(sizeof(uint64_t) * n + n + 1);
         uint64_t* row = (uint64_t*)body.data();
         for (int t = 0; t < n; t++) row[t] = c->scounts[t];
         memcpy(&c->demand[(size_t)c->cfg.rank * n], row, sizeof(uint64_t) * n);
@@ -2134,6 +2203,12 @@ static void event_loop(Comm* c) {
           compute_intent(c, intent);
           memcpy(body.data() + sizeof(uint64_t) * n, intent.data(), n);
         }
+        // 本 coll 的承诺位窗口从此开:先复位对端位,再挂自己的
+        // (此前到的本 cid 行都还在 pend,fold 在下方,顺序安全)
+        if ((int)c->peer_corr_intent.size() != n) c->peer_corr_intent.assign(n, 0);
+        std::fill(c->peer_corr_intent.begin(), c->peer_corr_intent.end(), 0);
+        c->my_corr_intent = corridor_intent_bit(c);
+        body[sizeof(uint64_t) * n + n] = c->my_corr_intent;
         // hint(O2)命中也照样广播自己的行:混合模式下(某 rank 局部不匹配退回
         // mode 0)它还等着收满 n-1 行,一条单程小报文换掉一类死锁
         ctrl_bcast(c, CT_DEMAND, (uint16_t)c->coll_id, body.data(), (uint32_t)body.size());
@@ -2149,6 +2224,7 @@ static void event_loop(Comm* c) {
           for (int p = 0; p < n; p++) {
             if (p == c->cfg.rank || !es->pend_seen[si][p]) continue;
             memcpy(&c->demand[(size_t)p * n], &slot[(size_t)p * n], sizeof(uint64_t) * n);
+            c->peer_corr_intent[p] = es->pend_cintent[si][p];
             es->pend_seen[si][p] = 0;
             es->demand_got++;
           }
@@ -2264,6 +2340,7 @@ void engine_start(Comm* c) {
   // 日志 0 字节 —— log.md 坑 #15)
   c->peer_wave.assign(c->cfg.nranks, 0);
   c->peer_fin.assign(c->cfg.nranks, 0);
+  c->peer_corr_intent.assign(c->cfg.nranks, 0);   // 走廊承诺位(demand 块复位/填)
   c->pace_cold.assign(c->cfg.nranks, 0);
   c->peer_det.assign(c->cfg.nranks, 0);
   c->peer_fab.assign((size_t)c->cfg.nranks * 2 * 8, 0);
@@ -2468,6 +2545,29 @@ void engine_start(Comm* c) {
         c->err = "E1028 verbs 建链失败";
         return;
       }
+      // NIC 物理单元账本实例化(log_raven.md 2026-08-21「资源单元」条):
+      // 共享 HCA 的节点(Raven:1×HDR200 喂 4 GPU)必须一根管子一本账,
+      // 否则注水把同一根管当 4 根独立管错误分流(W6C6 8M uniform 5.4× 灾难
+      // 的根因)。cap 语义:**按物理单元口径** —— MOSAIC_NIC_GBPS>0 = 显式
+      // 覆盖单元口速率;0(默认)= 用 verbs 探测的物理口速率(HDR200=200)。
+      nic_unit_exchange(c);
+      {
+        c->ledger.disch_agg.assign(c->topo.nres(), {});
+        for (int r = 0; r < c->cfg.nranks; r++) {
+          int lead = c->topo.nic_leader[r];
+          double g = (lead == r)
+                         ? (c->cfg.nic_gbps > 0 ? c->cfg.nic_gbps : c->nic_unit_gbps[r])
+                         : 0;
+          c->ledger.cap_Bps[c->topo.res(r, RES_NIC_UP)] = g * 1e9 / 8.0;
+          c->ledger.cap_Bps[c->topo.res(r, RES_NIC_DN)] = g * 1e9 / 8.0;
+          if (lead != r) {   // 成员的 discharge 计入 leader 位的在途扣减
+            c->ledger.disch_agg[c->topo.res(lead, RES_NIC_UP)]
+                .push_back(c->topo.res(r, RES_NIC_UP));
+            c->ledger.disch_agg[c->topo.res(lead, RES_NIC_DN)]
+                .push_back(c->topo.res(r, RES_NIC_DN));
+          }
+        }
+      }
     }
   }
 
@@ -2479,10 +2579,24 @@ void engine_start(Comm* c) {
   // 检测器与注入状态
   c->nominal_Bps = c->ledger.cap_Bps;             // 通告额定(检测器恢复基线)
   c->peer_det.assign(c->cfg.nranks, 0);
-  for (int k = 0; k < 2; k++) {
-    c->det[k].nom_gbps = c->cfg.nic_gbps;         // 检测器只知道通告值
-    c->det[k].rate_gbps = c->cfg.nic_gbps;
-    c->st.det_rate_gbps[k] = c->cfg.nic_gbps;
+  {
+    // 检测器额定(单元感知):私有 NIC 单元 = 单元口速率(覆盖值或探测值);
+    // **共享单元 = 0(禁用)** —— 检测器测的是本 rank 自己的吞吐,共享 HCA 下
+    // 那只是单元的一个份额,拿它对照单元额定必然误锁降速。检测器的共享单元
+    // 聚合版留决策层阶段做。nom<=0 时 det_feed 直接返回(engine.cc det_feed 头)。
+    double dn = 0;
+    if (c->topo.nic_leader[c->cfg.rank] == c->cfg.rank) {
+      bool shared = false;
+      for (int r = 0; r < c->cfg.nranks; r++)
+        if (r != c->cfg.rank && c->topo.nic_leader[r] == c->cfg.rank) { shared = true; break; }
+      if (!shared)
+        dn = c->cfg.nic_gbps > 0 ? c->cfg.nic_gbps : c->nic_unit_gbps[c->cfg.rank];
+    }
+    for (int k = 0; k < 2; k++) {
+      c->det[k].nom_gbps = dn;
+      c->det[k].rate_gbps = dn;
+      c->st.det_rate_gbps[k] = dn;
+    }
   }
   c->rng = 0x9E3779B97F4A7C15ull ^ (uint64_t)(c->cfg.rank + 1);
   c->drop_a = getenv("MOSAIC_DROP_A") ? atof(getenv("MOSAIC_DROP_A")) : 0.0;

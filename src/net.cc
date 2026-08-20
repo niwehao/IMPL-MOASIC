@@ -540,4 +540,101 @@ int net_poll(Comm* c) {
   return n;
 }
 
+// ─────────────────────────────────────────────────────────── NIC 物理单元共识
+// 同机 rank 用哪块 HCA 是运行时选的(verbs 按 local rank 轮转候选口),共享关系
+// 只能探测不能假设(HCA 布局跨节点不统一,R21)。共识分两步:
+//   ①同机:per-host SHM 表,各 local rank 写 (devkey, gbps),收齐后按
+//     「同 key 的最小 local 下标」定 leader —— 全员同规则,零消息;
+//   ②跨机:与每个远端 rank 经既有数据连接 pairwise 交换 (leader_local, gbps)。
+// 结果:topo.nic_leader[](账本按物理单元记账的依据)+ nic_unit_gbps[]。
+// verbs 面不存在(TCP/离线回放)= 保持恒等映射,行为不变。
+void nic_unit_exchange(Comm* c) {
+  uint64_t my_key = 0; double my_gbps = 0;
+  if (!verbs_nic_ident(c, &my_key, &my_gbps)) return;
+  Topo& t = c->topo;
+  const int n = t.nranks, me = t.rank, G = t.G;
+  const int h0 = t.host(me) * G;                       // 本机首 rank
+  const int nlocal = std::min(G, n - h0);
+  const int my_local = me - h0;
+
+  struct Ent { std::atomic<uint64_t> key; double gbps; std::atomic<uint32_t> ready; };
+  struct Payload { uint8_t leader_local; uint8_t pad[7]; double gbps; };
+
+  uint8_t leader_local_mine = (uint8_t)my_local;
+  std::vector<uint64_t> lkey(nlocal, 0);
+  std::vector<double> lgbps(nlocal, 0);
+  lkey[my_local] = my_key; lgbps[my_local] = my_gbps;
+
+  if (nlocal > 1) {
+    char nm[128];
+    snprintf(nm, sizeof(nm), "/mosaic_%d_nicmap_%d", shm_job_id(), t.host(me));
+    size_t bytes = sizeof(Ent) * (size_t)nlocal;
+    int fd = shm_open(nm, O_CREAT | O_RDWR, 0600);
+    if (fd >= 0 && ftruncate(fd, (off_t)bytes) == 0) {
+      Ent* tab = (Ent*)mmap(nullptr, bytes, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+      if (tab != MAP_FAILED) {
+        tab[my_local].key.store(my_key, std::memory_order_relaxed);
+        tab[my_local].gbps = my_gbps;
+        tab[my_local].ready.store(1, std::memory_order_release);
+        bool all = false;
+        for (int tries = 0; tries < 20000 && !all; tries++) {   // ≤10s
+          all = true;
+          for (int i = 0; i < nlocal; i++)
+            if (!tab[i].ready.load(std::memory_order_acquire)) { all = false; break; }
+          if (!all) usleep(500);
+        }
+        if (all) {
+          for (int i = 0; i < nlocal; i++) {
+            lkey[i] = tab[i].key.load(std::memory_order_relaxed);
+            lgbps[i] = tab[i].gbps;
+          }
+          for (int i = 0; i < nlocal; i++)
+            if (lkey[i] == my_key) { leader_local_mine = (uint8_t)i; break; }
+        } else {
+          MLOG_WARN("E1034 NIC 单元同机共识超时 —— 退化为每 rank 私有账(保守)");
+        }
+        munmap(tab, bytes);
+      }
+      close(fd);
+      shm_unlink(nm);   // 幂等;谁先到谁删,晚到的 ENOENT 无害(表已 mmap 在手)
+    } else if (fd >= 0) { close(fd); }
+  }
+
+  // 同机成员的 leader(同规则本地推导)
+  std::vector<uint8_t> leader_of(n);
+  std::vector<double> gbps_of(n, 0);
+  for (int r = 0; r < n; r++) { leader_of[r] = (uint8_t)r; gbps_of[r] = 0; }
+  for (int i = 0; i < nlocal; i++) {
+    uint8_t ld = (uint8_t)i;
+    if (lkey[i]) {
+      for (int j = 0; j < nlocal; j++)
+        if (lkey[j] == lkey[i]) { ld = (uint8_t)j; break; }
+    }
+    leader_of[h0 + i] = (uint8_t)(h0 + ld);
+    gbps_of[h0 + i] = lgbps[i];
+  }
+
+  // 跨机:pairwise 交换(数据连接已建;write-then-read 小报文,无序依赖)
+  for (int p = 0; p < n; p++) {
+    if (p == me || t.same_host(me, p)) continue;
+    Payload mine{leader_local_mine, {0}, my_gbps}, rem{};
+    if (net_blocking_exchange(c, p, &mine, &rem, sizeof(Payload)) != 0) {
+      MLOG_WARN("E1035 NIC 单元跨机交换失败(r%d)—— 该 rank 记为私有账", p);
+      continue;
+    }
+    leader_of[p] = (uint8_t)(t.host(p) * G + rem.leader_local);
+    gbps_of[p] = rem.gbps;
+  }
+
+  for (int r = 0; r < n; r++) {
+    t.nic_leader[r] = leader_of[r];
+    c->nic_unit_gbps[r] = gbps_of[r];
+  }
+  c->nic_unit_gbps[me] = my_gbps;
+  int units = 0;
+  for (int r = 0; r < n; r++) if (t.nic_leader[r] == r) units++;
+  MLOG_INFO("NIC 单元共识:%d rank → %d 个物理单元(本 rank leader=r%d,口 %.0fG)",
+            n, units, t.nic_leader[me], my_gbps);
+}
+
 }  // namespace mosaic

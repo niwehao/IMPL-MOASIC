@@ -19,6 +19,7 @@ void topo_init(Topo* t, int nranks, int G, int rank) {
   t->G = G;
   t->H = (nranks + G - 1) / G;
   t->rank = rank;
+  for (int r = 0; r < nranks; r++) t->nic_leader[r] = (uint8_t)r;   // 恒等 = 私有 NIC
   // 网络虚拟化档(根 CLAUDE.md「网络虚拟化铁律」):MOSAIC_NET_MODE=rail 时
   // 跨 rail 的跨机对**不存在直连通道**,必须换轨;origin(默认)= 旧行为。
   {
@@ -141,8 +142,8 @@ int Topo::hop_res(int a, int b, int* out) const {
     out[n++] = res(a, RES_NV_UP);
     out[n++] = res(b, RES_NV_DN);
   } else {
-    out[n++] = res(a, RES_NIC_UP);
-    out[n++] = res(b, RES_NIC_DN);
+    out[n++] = nic_res_up(a);          // NIC 账记物理单元(leader 位),见 Topo 注释
+    out[n++] = nic_res_dn(b);
     if (rail(a) != rail(b)) {                 // 跨轨才过 fabric(rail 直连不过)
       // 与模拟器 lg_res_of_hop(rail 布线,spineagg)逐字一致:
       // 源 rail 的 leaf 上行段 + 目的 rail 的 leaf 下行段
@@ -171,6 +172,8 @@ uint64_t Ledger::outstanding(int r) const {
   uint64_t ch = charge[r];
   for (const auto& p : peer_charge) ch += p[r];
   uint64_t di = discharge[r];
+  if (!disch_agg.empty())
+    for (int e : disch_agg[r]) di += discharge[e];   // NIC 单元:成员的送达也扣
   return ch > di ? ch - di : 0;
 }
 
