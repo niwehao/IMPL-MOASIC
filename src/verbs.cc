@@ -1,60 +1,50 @@
-/* verbs.cc —— RDMA 数据面 + 控制面(本机 RoCE / 任何有 verbs 的平台)。
+/* verbs.cc —— RDMA 数据面 + 控制面(RoCE 与 IB 同一份代码,运行时探测)。
  *
- * 2026-08-19 重构(File/debug-819/design-verbs-gpu-staging.md):
- *   数据面 payload 全程不落 host —— GPU staging 经 dmabuf GDR 注册,
- *   SEND/RECV 都用双 SGE:[64B SliceHdr(host pinned,CPU 直读写)|payload(GPU)]。
- *   实测本机 NIC↔GPU DMA 全向 ~91.4 Gbps(= 线速,Result/local-0819-gdr-bw)。
+ * 数据面两侧都走 host pinned(NCCL 同款 host-bounce;raven-0819-verbs-plane 实测定的):
+ *   TX:payload 先经拷贝引擎落 **host pinned staging**,NIC 从 host MR 读。
+ *       GDR 读要过 PCIe host-bridge P2P,实测被钉在 ~15GB/s(Raven HDR200:
+ *       GDR 读 121 Gbps vs host 读 197 Gbps);host 读两平台皆满线速。
+ *   RX:NIC 写 **host pinned 槽池**,交付由拷贝引擎 H2D 进 recvbuf。
+ *       不 GDR 直写 GPU:单向确实满速(197),但**双向持续流下 GDR 写会随机
+ *       进入劣化态**(收端 HCA 排水滞流 → 链路信用饿死发端,port_xmit_wait
+ *       一次 2pair 跑暴涨 2.2 亿;探针双向 RX=GPU 双稳态 195/26 Gbps,
+ *       RX=host 稳定 187-196 Gbps/dir 满线速)。
+ *   SEND/RECV 都用双 SGE:[64B SliceHdr(host pinned,CPU 直读写)|payload]。
  *   控制面独立 QP(每 remote peer 一条):报文 ≤2KB 落 host 槽,与 slice
- *   FIFO 解耦;跨机控制面**恒走 verbs SEND**(单程 ~5µs vs TCP 内核栈 30-60µs,
- *   Gate1 实测 256KB A2A 160.4→82.7µs),建链失败自动回退 TCP(告警,确定性)。
+ *   FIFO 解耦;跨机控制面**恒走 verbs SEND**(单程 ~5µs vs TCP 内核栈 30-60µs),
+ *   建链失败自动回退 TCP(告警,确定性)。
+ *
+ * 平台差异全部运行时探测,无静态名单:
+ *   链路层 = 端口属性(IB → LID 路由 + 端口 active MTU;RoCE → GRH + MTU1024);
+ *   HCA = 收集全部 ACTIVE 端口,有 IB 就只在 IB 里选(以太口不算数据网),
+ *         再按 local rank 轮转(多网卡节点各 rank 分摊,单卡机退化为原行为)。
  *
  * 形态:每个远端 peer 一条数据 RC QP + 一条控制 RC QP,SEND/RECV。
  *   选 SEND/RECV 的理由是**流控**:接收端不补投 recv WR 时,发送端撞 RNR
  *   并由硬件退避 —— 链路满了发送方自然慢下来,无需自己做信用回传。
  *
- * 与 NVSHMEM 数据面(Raven)的关系:MOSAIC_NIC=nvshmem 时本文件只建**控制面**
- * (ctrl-only:不碰 GPU MR / 数据 QP)。这是清理计划 §2 的待收敛项。
  */
 #include "internal.h"
 
 #include <arpa/inet.h>
 #include <cuda_runtime.h>
-#include <dlfcn.h>
 #include <infiniband/verbs.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cstdlib>
 
 namespace mosaic {
 
 // 每 peer 预投的数据 recv WR 数 = 发送端最多领先的 slice 数(在途上界)。
-// 默认按字节定量:窗口至少罩住 8MB 在途(wave-turnaround 实测:按片计数的
-// 窗口在小切片下把线速掐到 17.8%,开够即回 ~85%)。
+// 默认按字节定量:窗口罩住 32MB 在途(小切片曾实测 8MB 窗把线速掐到 17.8%;
+// 32MB/pair 的超大传输下窗口不足 = 每片撞一次 RNR 退避)。上限 64 槽防止
+// 小 slice 下 host 槽池爆炸(64 × slice × peer 数)。
 static int rdma_rx_slots(int slice_bytes) {
   const char* e = getenv("MOSAIC_RDMA_RX_SLOTS");
   if (e && *e) return atoi(e);
-  int n = (int)(((size_t)8 << 20) / (size_t)(slice_bytes > 0 ? slice_bytes : 1 << 20));
-  return n < 16 ? 16 : n;
-}
-
-// dmabuf GDR 注册(驱动 API 经 dlopen,与 engine.cc 的 JIT 同一纪律 ——
-// 免链接期 libcuda 依赖)。失败返回 nullptr(数据面 setup 硬错)。
-typedef int (*cu_dmabuf_fn)(int* fd, unsigned long long ptr, size_t size,
-                            int handleType, unsigned long long flags);
-static ibv_mr* reg_gpu_mr(ibv_pd* pd, void* p, size_t n) {
-  static cu_dmabuf_fn get_fd = [] {
-    void* h = dlopen("libcuda.so.1", RTLD_LAZY | RTLD_GLOBAL);
-    return h ? (cu_dmabuf_fn)dlsym(h, "cuMemGetHandleForAddressRange") : nullptr;
-  }();
-  if (!get_fd) return nullptr;
-  int fd = -1;
-  // CU_MEM_RANGE_HANDLE_TYPE_DMA_BUF_FD = 1(cuda.h 枚举;免包含驱动头)
-  if (get_fd(&fd, (unsigned long long)(uintptr_t)p, n, 1, 0) != 0 || fd < 0)
-    return nullptr;
-  ibv_mr* mr = ibv_reg_dmabuf_mr(pd, 0, n, (uint64_t)(uintptr_t)p, fd,
-                                 IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
-  close(fd);                       // reg 持有自己的引用,fd 可关
-  return mr;
+  int n = (int)(((size_t)32 << 20) / (size_t)(slice_bytes > 0 ? slice_bytes : 1 << 20));
+  return n < 16 ? 16 : (n > 64 ? 64 : n);
 }
 
 struct VerbsPeer {
@@ -71,15 +61,18 @@ struct VerbsCtx {
   // 不被 recv 侧牵连。数据/控制 QP 共用这两个 CQ,按 wr_id 位段区分。
   ibv_cq* cq_send = nullptr;
   ibv_cq* cq_recv = nullptr;
-  bool data_plane = false;         // false = ctrl-only(nvshmem 数据面形态)
+  bool data_plane = false;         // false = ctrl-only(调试形态,正常恒 true)
   int port = 1, gid_index = 3;
+  bool roce = true;                // 端口链路层:RoCE(GRH)| IB(LID 路由)
+  ibv_mtu mtu = IBV_MTU_1024;      // 端口 active MTU(与对端取 min)
+  uint16_t lid = 0;                // IB LID(RoCE 恒 0)
   // ── 数据面缓冲(data_plane 才建)
   ibv_mr* mr_stage_hdr = nullptr;  // 发送:host 头池(engine 的 stage_hdr_pool)
-  ibv_mr* mr_stage_gpu = nullptr;  // 发送:GPU payload 池(engine 的 stage_gpu_pool,GDR)
+  ibv_mr* mr_stage_pay = nullptr;  // 发送:host pinned payload 池(engine 的 stage_pay_pool)
   uint8_t* rx_hdr_pool = nullptr;  // 接收:host 头槽池 [peer][idx] × HDR_STRIDE
   ibv_mr* mr_rx_hdr = nullptr;
-  void* rx_gpu_pool = nullptr;     // 接收:GPU payload 槽池 [peer][idx] × slice_bytes(GDR)
-  ibv_mr* mr_rx_gpu = nullptr;
+  void* rx_pay_pool = nullptr;     // 接收:host pinned payload 槽池 [peer][idx] × slice_bytes
+  ibv_mr* mr_rx_pay = nullptr;
   size_t rx_pay_bytes = 0;         // = slice_bytes
   // ── 控制面
   static constexpr int CTRL_SLOT = 2048;
@@ -107,40 +100,60 @@ struct QpInfo {          // 经既有的 TCP 数据连接交换(建链期,阻塞
   uint8_t gid[16];
   uint32_t magic;
   uint8_t data_plane;    // 双方必须一致(verbs 数据面 vs ctrl-only)
-  uint8_t _pad[3];
+  uint8_t mtu;           // 本端 active MTU(ibv_mtu 枚举;双方取 min)
+  uint16_t lid;          // IB LID;非 0 = 对端走 LID 路由(RoCE 恒 0 → GRH)
 };
 #pragma pack(pop)
 
-// 自动挑选 ACTIVE 的那块卡:两机的 verbs 设备名不同(mlx5_0 vs rocep66s0f0),
-// 按名字分支很容易在换机器时悄悄挂掉,按端口状态选更稳。
-static ibv_context* open_active_device(int* port_out) {
+// 自动挑卡:按端口状态选(设备名跨机不同,按名字分支换机器就悄悄挂)。
+// 全部 ACTIVE 端口里,有 IB 链路层就只在 IB 里选(以太口不算数据网);
+// 多候选按 local rank 轮转(多网卡节点各 rank 分摊带宽,单卡机退化不变)。
+static ibv_context* open_active_device(int local_rank, int* port_out) {
   int n = 0;
   ibv_device** list = ibv_get_device_list(&n);
   if (!list || n == 0) { MLOG_ERR("E1010 没有 RDMA 设备"); return nullptr; }
   const char* want = getenv("MOSAIC_HCA");
+  struct Cand { int dev, port; bool ib; };
+  std::vector<Cand> cand;
+  std::vector<ibv_context*> opened(n, nullptr);
+  bool any_ib = false;
   for (int i = 0; i < n; i++) {
     const char* nm = ibv_get_device_name(list[i]);
     if (want && *want && strcmp(nm, want) != 0) continue;
     ibv_context* ctx = ibv_open_device(list[i]);
     if (!ctx) continue;
+    opened[i] = ctx;
     ibv_port_attr pa{};
     for (int p = 1; p <= 2; p++) {
       if (ibv_query_port(ctx, p, &pa) == 0 && pa.state == IBV_PORT_ACTIVE) {
-        MLOG_INFO("RDMA 设备 %s port %d ACTIVE", nm, p);
-        *port_out = p;
-        ibv_free_device_list(list);
-        return ctx;
+        bool ib = (pa.link_layer != IBV_LINK_LAYER_ETHERNET);
+        cand.push_back({i, p, ib});
+        any_ib |= ib;
       }
     }
-    ibv_close_device(ctx);
   }
+  if (any_ib)
+    cand.erase(std::remove_if(cand.begin(), cand.end(),
+                              [](const Cand& x) { return !x.ib; }),
+               cand.end());
+  ibv_context* ret = nullptr;
+  if (!cand.empty()) {
+    const Cand& pick = cand[(size_t)local_rank % cand.size()];
+    ret = opened[pick.dev];
+    *port_out = pick.port;
+    MLOG_INFO("RDMA 设备 %s port %d ACTIVE(候选 %zu,local_rank %d)",
+              ibv_get_device_name(list[pick.dev]), pick.port, cand.size(), local_rank);
+    opened[pick.dev] = nullptr;
+  }
+  for (int i = 0; i < n; i++)
+    if (opened[i]) ibv_close_device(opened[i]);
   ibv_free_device_list(list);
-  MLOG_ERR("E1011 没有 ACTIVE 的 RDMA 端口");
-  return nullptr;
+  if (!ret) MLOG_ERR("E1011 没有 ACTIVE 的 RDMA 端口");
+  return ret;
 }
 
 static bool qp_connect(VerbsCtx* v, ibv_qp* qp, uint32_t my_psn, uint32_t rem_qpn,
-                       uint32_t rem_psn, const uint8_t* rem_gid) {
+                       uint32_t rem_psn, const QpInfo& rem) {
   ibv_qp_attr a{};
   a.qp_state = IBV_QPS_INIT;
   a.pkey_index = 0;
@@ -151,16 +164,25 @@ static bool qp_connect(VerbsCtx* v, ibv_qp* qp, uint32_t my_psn, uint32_t rem_qp
   }
   memset(&a, 0, sizeof(a));
   a.qp_state = IBV_QPS_RTR;
-  a.path_mtu = IBV_MTU_1024;      // RoCE 上 1024 最保险(MTU 与以太网帧无关)
+  // 路径 MTU = 双方 active MTU 取 min(IB HDR = 4096;RoCE 以太帧下 = 1024)
+  a.path_mtu = (ibv_mtu)std::min((int)v->mtu, (int)rem.mtu);
   a.dest_qp_num = rem_qpn;
   a.rq_psn = rem_psn;
   a.max_dest_rd_atomic = 1;
-  a.min_rnr_timer = 12;           // RNR 退避 ~640µs:接收端没补投 WR 时靠它背压
-  a.ah_attr.is_global = 1;        // RoCE v2 必须走 GRH
+  // RNR 退避取最小档(0.01ms):接收端交付后 ~12µs 就补投(Raven 实测),
+  // 640µs 档会把每次撞 RNR 变成半个毫秒的空转 —— 32M/pair 形状实测被它
+  // 钉在 ~50% 占空比(raven-0819-verbs-plane)。背压语义不变,只是醒得快。
+  a.min_rnr_timer = 1;
   a.ah_attr.port_num = (uint8_t)v->port;
-  a.ah_attr.grh.hop_limit = 64;
-  a.ah_attr.grh.sgid_index = (uint8_t)v->gid_index;
-  memcpy(&a.ah_attr.grh.dgid, rem_gid, 16);
+  if (rem.lid) {                  // IB:LID 路由(对端 lid 非 0 才可能)
+    a.ah_attr.is_global = 0;
+    a.ah_attr.dlid = rem.lid;
+  } else {                        // RoCE v2:必须走 GRH
+    a.ah_attr.is_global = 1;
+    a.ah_attr.grh.hop_limit = 64;
+    a.ah_attr.grh.sgid_index = (uint8_t)v->gid_index;
+    memcpy(&a.ah_attr.grh.dgid, rem.gid, 16);
+  }
   if (ibv_modify_qp(qp, &a, IBV_QP_STATE | IBV_QP_AV | IBV_QP_PATH_MTU | IBV_QP_DEST_QPN |
                               IBV_QP_RQ_PSN | IBV_QP_MAX_DEST_RD_ATOMIC | IBV_QP_MIN_RNR_TIMER)) {
     MLOG_ERR("E1013 modify RTR 失败(GID index %d 对吗?)", v->gid_index); return false;
@@ -188,10 +210,10 @@ static bool post_recv(Comm* c, int peer, int idx) {
   sge[0].addr = (uint64_t)(uintptr_t)(v->rx_hdr_pool + ((size_t)peer * nrx + idx) * HDR_STRIDE);
   sge[0].length = HDR_STRIDE;
   sge[0].lkey = v->mr_rx_hdr->lkey;
-  sge[1].addr = (uint64_t)(uintptr_t)((uint8_t*)v->rx_gpu_pool +
+  sge[1].addr = (uint64_t)(uintptr_t)((uint8_t*)v->rx_pay_pool +
                                       ((size_t)peer * nrx + idx) * v->rx_pay_bytes);
   sge[1].length = (uint32_t)v->rx_pay_bytes;
-  sge[1].lkey = v->mr_rx_gpu->lkey;
+  sge[1].lkey = v->mr_rx_pay->lkey;
   ibv_recv_wr wr{}, *bad = nullptr;
   wr.wr_id = WRID_RX | ((uint64_t)peer << 20) | (uint32_t)idx;
   wr.sg_list = sge;
@@ -218,14 +240,26 @@ static bool post_ctrl_recv(Comm* c, int peer, int idx) {
   return true;
 }
 
-// data_plane=true:数据面 + 控制面;false:仅控制面(nvshmem 数据面形态)。
+// data_plane=true:数据面 + 控制面;false:仅控制面(调试形态)。
 int verbs_setup(Comm* c, bool data_plane) {
   VerbsCtx* v = new VerbsCtx();
   c->verbs = v;
   v->data_plane = data_plane;
-  v->gid_index = getenv("MOSAIC_GID_INDEX") ? atoi(getenv("MOSAIC_GID_INDEX")) : 3;
-  v->ctx = open_active_device(&v->port);
+  int local_rank = 0;
+  for (int p = 0; p < c->cfg.rank; p++)
+    if (c->topo.same_host(c->cfg.rank, p)) local_rank++;
+  v->ctx = open_active_device(local_rank, &v->port);
   if (!v->ctx) return -1;
+  {
+    ibv_port_attr pa{};
+    if (ibv_query_port(v->ctx, v->port, &pa)) { MLOG_ERR("E1011 query_port 失败"); return -1; }
+    v->roce = (pa.link_layer == IBV_LINK_LAYER_ETHERNET);
+    v->mtu = pa.active_mtu;
+    v->lid = v->roce ? 0 : pa.lid;
+  }
+  // GID:RoCE v2 惯例 index 3;IB 只用 index 0(且仅当对端无 LID 时才进 GRH)
+  v->gid_index = getenv("MOSAIC_GID_INDEX") ? atoi(getenv("MOSAIC_GID_INDEX"))
+                                            : (v->roce ? 3 : 0);
   v->pd = ibv_alloc_pd(v->ctx);
   const int nrx = data_plane ? rdma_rx_slots(c->cfg.slice_bytes) : 0;
   const int nremote = c->cfg.nranks - c->cfg.gpus_per_host;
@@ -238,19 +272,20 @@ int verbs_setup(Comm* c, bool data_plane) {
   if (!v->pd || !v->cq_send || !v->cq_recv) { MLOG_ERR("E1016 alloc pd/cq 失败"); return -1; }
 
   if (data_plane) {
-    if (!c->cfg.use_gpu || !c->stage_gpu_pool) {
-      MLOG_ERR("E5031 verbs 数据面需要 GPU staging(use_gpu=0 的跨机形态不支持)");
+    if (!c->cfg.use_gpu || !c->stage_pay_pool) {
+      MLOG_ERR("E5031 verbs 数据面需要 staging(use_gpu=0 的跨机形态不支持)");
       return -1;
     }
-    // 发送:注册 engine 的 host 头池 + GPU payload 池(GDR)
+    // 发送:注册 engine 的 host 头池 + host pinned payload 池(NIC 从 host 读满速)
     v->mr_stage_hdr = ibv_reg_mr(v->pd, c->stage_hdr_pool,
                                  (size_t)c->stage_slots * HDR_STRIDE,
                                  IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
-    v->mr_stage_gpu = reg_gpu_mr(v->pd, c->stage_gpu_pool,
-                                 (size_t)c->stage_slots * (size_t)c->cfg.slice_bytes);
-    if (!v->mr_stage_hdr || !v->mr_stage_gpu) {
-      MLOG_ERR("E1017 staging 注册失败(hdr=%p gpu=%p;GPU 侧需要 dmabuf GDR 支持)",
-               (void*)v->mr_stage_hdr, (void*)v->mr_stage_gpu);
+    v->mr_stage_pay = ibv_reg_mr(v->pd, c->stage_pay_pool,
+                                 (size_t)c->stage_slots * (size_t)c->cfg.slice_bytes,
+                                 IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
+    if (!v->mr_stage_hdr || !v->mr_stage_pay) {
+      MLOG_ERR("E1017 staging 注册失败(hdr=%p pay=%p)",
+               (void*)v->mr_stage_hdr, (void*)v->mr_stage_pay);
       return -1;
     }
     // 接收:host 头槽池 + GPU payload 槽池(每 peer nrx 槽)
@@ -262,13 +297,15 @@ int verbs_setup(Comm* c, bool data_plane) {
     memset(v->rx_hdr_pool, 0, hdr_bytes);
     v->mr_rx_hdr = ibv_reg_mr(v->pd, v->rx_hdr_pool, hdr_bytes,
                               IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
+    // payload 槽池 = host pinned(CUDA 钉页保证 CE H2D 真异步)
     const size_t pay_bytes = v->rx_pay_bytes * nrx * c->cfg.nranks;
-    if (cudaMalloc(&v->rx_gpu_pool, pay_bytes) != cudaSuccess) {
-      MLOG_ERR("E1018 rx GPU 池分配失败(%zu MB)", pay_bytes >> 20); return -1;
+    if (cudaHostAlloc(&v->rx_pay_pool, pay_bytes, cudaHostAllocPortable) != cudaSuccess) {
+      MLOG_ERR("E1018 rx payload 池分配失败(%zu MB)", pay_bytes >> 20); return -1;
     }
-    v->mr_rx_gpu = reg_gpu_mr(v->pd, v->rx_gpu_pool, pay_bytes);
-    if (!v->mr_rx_hdr || !v->mr_rx_gpu) {
-      MLOG_ERR("E1019 rx 池注册失败(hdr=%p gpu=%p)", (void*)v->mr_rx_hdr, (void*)v->mr_rx_gpu);
+    v->mr_rx_pay = ibv_reg_mr(v->pd, v->rx_pay_pool, pay_bytes,
+                              IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
+    if (!v->mr_rx_hdr || !v->mr_rx_pay) {
+      MLOG_ERR("E1019 rx 池注册失败(hdr=%p pay=%p)", (void*)v->mr_rx_hdr, (void*)v->mr_rx_pay);
       return -1;
     }
   }
@@ -332,6 +369,8 @@ int verbs_setup(Comm* c, bool data_plane) {
     mine.ctrl_psn = (uint32_t)(c->cfg.rank * 1000 + p + 500000) & 0xFFFFFF;
     mine.magic = 0x51504F4B;
     mine.data_plane = data_plane ? 1 : 0;
+    mine.mtu = (uint8_t)v->mtu;
+    mine.lid = v->lid;
     memcpy(mine.gid, &mygid, 16);
     if (net_blocking_exchange(c, p, &mine, &rem, sizeof(QpInfo)) != 0) {
       MLOG_ERR("E1022 QP 信息交换失败(r%d)", p); return -1;
@@ -342,15 +381,16 @@ int verbs_setup(Comm* c, bool data_plane) {
       return -1;
     }
     if (data_plane) {
-      if (!qp_connect(v, vp.qp, mine.psn, rem.qp_num, rem.psn, rem.gid)) return -1;
+      if (!qp_connect(v, vp.qp, mine.psn, rem.qp_num, rem.psn, rem)) return -1;
       for (int i = 0; i < nrx; i++) if (!post_recv(c, p, i)) return -1;
     }
-    if (!qp_connect(v, vp.qp_ctrl, mine.ctrl_psn, rem.ctrl_qp_num, rem.ctrl_psn, rem.gid))
+    if (!qp_connect(v, vp.qp_ctrl, mine.ctrl_psn, rem.ctrl_qp_num, rem.ctrl_psn, rem))
       return -1;
     for (int i = 0; i < VerbsCtx::NCTRL_RX; i++) if (!post_ctrl_recv(c, p, i)) return -1;
   }
-  MLOG_INFO("verbs 就绪:%d peer × (%s + ctrl)QP;数据 %d 预投槽/peer(payload = GPU GDR)",
-            nremote, data_plane ? "data" : "无 data", nrx);
+  MLOG_INFO("verbs 就绪:%d peer × (%s + ctrl)QP;数据 %d 预投槽/peer"
+            "(%s,TX/RX 都经 host pinned)",
+            nremote, data_plane ? "data" : "无 data", nrx, v->roce ? "RoCE" : "IB");
   return 0;
 }
 
@@ -362,15 +402,15 @@ void verbs_teardown(Comm* c) {
     if (p.qp_ctrl) ibv_destroy_qp(p.qp_ctrl);
   }
   if (v->mr_stage_hdr) ibv_dereg_mr(v->mr_stage_hdr);
-  if (v->mr_stage_gpu) ibv_dereg_mr(v->mr_stage_gpu);
+  if (v->mr_stage_pay) ibv_dereg_mr(v->mr_stage_pay);
   if (v->mr_rx_hdr) ibv_dereg_mr(v->mr_rx_hdr);
-  if (v->mr_rx_gpu) ibv_dereg_mr(v->mr_rx_gpu);
+  if (v->mr_rx_pay) ibv_dereg_mr(v->mr_rx_pay);
   if (v->mr_ctrl) ibv_dereg_mr(v->mr_ctrl);
   if (v->mr_ctrl_rx) ibv_dereg_mr(v->mr_ctrl_rx);
   free(v->ctrl_pool);
   free(v->ctrl_rx_pool);
   free(v->rx_hdr_pool);
-  if (v->rx_gpu_pool) cudaFree(v->rx_gpu_pool);
+  if (v->rx_pay_pool) cudaFreeHost(v->rx_pay_pool);
   if (v->cq_send) ibv_destroy_cq(v->cq_send);
   if (v->cq_recv) ibv_destroy_cq(v->cq_recv);
   if (v->pd) ibv_dealloc_pd(v->pd);
@@ -379,7 +419,7 @@ void verbs_teardown(Comm* c) {
   c->verbs = nullptr;
 }
 
-// 发送一个 slice:双 SGE [host 头槽(此处 CPU 写)| GPU staging payload]。
+// 发送一个 slice:双 SGE [host 头槽(此处 CPU 写)| host pinned staging payload]。
 int verbs_post_slice(Comm* c, int peer, const SliceHdr& h, int stage_slot) {
   VerbsCtx* v = VC(c);
   uint8_t* hslot = c->stage_hdr_pool + (size_t)stage_slot * HDR_STRIDE;
@@ -388,10 +428,10 @@ int verbs_post_slice(Comm* c, int peer, const SliceHdr& h, int stage_slot) {
   sge[0].addr = (uint64_t)(uintptr_t)hslot;
   sge[0].length = HDR_STRIDE;
   sge[0].lkey = v->mr_stage_hdr->lkey;
-  sge[1].addr = (uint64_t)(uintptr_t)((uint8_t*)c->stage_gpu_pool +
+  sge[1].addr = (uint64_t)(uintptr_t)((uint8_t*)c->stage_pay_pool +
                                       (size_t)stage_slot * (size_t)c->cfg.slice_bytes);
   sge[1].length = h.len;
-  sge[1].lkey = v->mr_stage_gpu->lkey;
+  sge[1].lkey = v->mr_stage_pay->lkey;
   ibv_send_wr wr{}, *bad = nullptr;
   wr.wr_id = (uint64_t)stage_slot;          // 低位段 = 数据发送,携带 staging 槽号
   wr.sg_list = sge;
@@ -494,7 +534,7 @@ int verbs_poll(Comm* c) {
       done++;
       continue;
     }
-    // 数据 slice:头在 host 槽(CPU 直读),payload 在 GPU 槽(全程不落 host)
+    // 数据 slice:头在 host 槽(CPU 直读),payload 在 host 槽(CE H2D 交付)
     uint8_t* hslot = v->rx_hdr_pool + ((size_t)peer * v->peer[peer].nrx + idx) * HDR_STRIDE;
     SliceHdr h;
     memcpy(&h, hslot, sizeof(h));
@@ -511,7 +551,7 @@ int verbs_poll(Comm* c) {
     v->peer[peer].posted--;
     MTRACE(TE_SLICE_RECV, ((uint32_t)h.src << 16) | h.dst, h.off,
            ((uint64_t)h.len << 8) | h.hop);       // CQ 命中 = 片到达 dst
-    void* gpay = (uint8_t*)v->rx_gpu_pool +
+    void* gpay = (uint8_t*)v->rx_pay_pool +
                  ((size_t)peer * v->peer[peer].nrx + idx) * v->rx_pay_bytes;
     // 中转但中转池空:扣着槽交给 wait_relay(on_slice_arrived 内部处理),
     // 槽在交付拷贝(D2D)完成后由 verbs_repost 归还

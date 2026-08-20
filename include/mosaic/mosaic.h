@@ -5,7 +5,7 @@
  * 见 Moasic/Note/report_mosaic_eps.md §11)。
  *
  * 分层(Imp_Plan/01):本头文件 = L3;调用者不需要知道 corridor / wave /
- * ledger 的存在,也不需要知道底下是 SHM 还是 TCP 还是 NVSHMEM。
+ * ledger 的存在,也不需要知道底下是 CUDA IPC 还是 RDMA verbs。
  */
 #ifndef MOSAIC_H
 #define MOSAIC_H
@@ -29,17 +29,11 @@ typedef enum {
   mosaicErrTimeout = 6,
 } mosaicResult_t;
 
-/* 调度器:同一套 transport 上可换的三种"发什么"的策略。
- * 公平性的技术落点(Imp_Plan/04 §3):三者共用完全相同的执行底座。 */
+/* 调度器:同一套 transport 上可换的策略。FAST 一律用官方 libflash 全栈对比
+ * (Impl/fast-rt),不接本库的任何一层。 */
 typedef enum {
   MOSAIC_SCHED_MOSAIC = 0,  /* MOSAIC-U2b:账本 + 走廊 + 波 + 双通道 */
-  MOSAIC_SCHED_DIRECT = 1,  /* 每 pair 全量走 DIRECT,无波无账本 = static ECMP 位 */
-  MOSAIC_SCHED_FAST   = 2,  /* FAST:官方 host 调度器(官方 fast_alltoall 源码
-                               未改动地编译链接,Birkhoff/balance/restore 全在)
-                               驱动的 adapter,见 src/fast_native.cc 头注释;
-                               MOSAIC_FAST_NATIVE=0 退回 structural 近似(消融) */
-  MOSAIC_SCHED_FAST_STRUCT = 3,  /* structural FAST:按论文结构重写的近似版,
-                                    不是官方代码 —— 只作消融/对照位 */
+  MOSAIC_SCHED_DIRECT = 1,  /* 每 pair 全量走 DIRECT,无波无账本 = static ECMP 位(诊断) */
 } mosaicSched_t;
 
 /* 运行时配置。全部字段都有环境变量镜像(MOSAIC_*),见 File/log_raven.md §5 旋钮表。

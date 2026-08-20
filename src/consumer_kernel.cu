@@ -1,8 +1,8 @@
-// S3 二期方案 N:GPU 消费者内核(源文件,不进 Makefile)。
+// GPU 消费者内核(源文件,不进 Makefile)。
 // PTX 由 tools/gen_consumer_ptx.sh 生成并嵌入 src/consumer_kernel_ptx.h,
 // 运行时经 cuModuleLoadDataEx JIT(与 engine.cc 的自旋门核同一机制,免 nvcc)。
 //
-// **生命期铁律(坑 #36)**:两个核都是**每 collective 起停**,绝不常驻 ——
+// **生命期铁律(坑 #36)**:核**每 collective 起停**,绝不常驻 ——
 // `cudaFree` 做设备级隐式同步,会等所有在跑的 kernel;常驻核永不退出 ⇒
 // torch 分配器一 free 就永久死锁(test_persist_sync 实测:常驻核在场时
 // 十个 host API 里唯独 cudaFree 挂死)。有界生命期下 cudaFree 最多等一个
@@ -32,69 +32,12 @@
 typedef unsigned long long u64;
 typedef unsigned int u32;
 
-// ── 镜像核配置(pinned mapped;host 在 setup 填好,launch 只传一个指针)
-// 异步窗口内 s_poll 的 cudaMemcpyAsync 镜像不可用(门等待未决期间流上操作
-// 被驱动楔死,Raven 实测),由本核设备直读 sig/credit/ring 写 shadow。
-struct MirrorCfg {
-  u64 sig, credit, ring;                      // 设备(对称堆)
-  u64 sig_shadow, hdr_shadow, credit_shadow;  // pinned mapped(设备侧地址)
-  u64 last_sig;                               // 设备 scratch [n*nslots]
-  u64 stop;                                   // 与消费者核同一停止字(ctr+128)
-  u64 sig_raw;                                // 诊断:无条件镜像的原始 sig
-  u32 n, nslots, slot_bytes, hdr_stride, hdr_bytes;
-  u32 magic_val;                              // SliceHdr.magic 期望值
-  u32 tag_check;                              // 1=校验 hdr.crc==槽使用代数(sig 值)
-  u32 pad;
-};
-
 // 输入就绪标志:排在 caller 流上(input 事件点之后),流执行到此 = a2a 输入
 // 张量已产出。engine 纯读 pinned 标志判 hop0 可发 —— 异步窗口内 event 线程
 // 一次 cudaEventQuery 都不能有(app 线程 torch sync 持锁时查询会冻死,实测)。
 extern "C" __global__ void mosaic_flagset(u64 addr, u64 val) {
   *(volatile u64*)addr = val;
   __threadfence_system();
-}
-
-extern "C" __global__ void mosaic_mirror(u64 cfg_a, u64 my_gen) {
-  const MirrorCfg* g = (const MirrorCfg*)cfg_a;
-  volatile u64* stop = (volatile u64*)g->stop;
-  volatile u64* gen = (volatile u64*)(g->stop + 64);   // ctr+192(stop 在 +128)
-  volatile u64* sig = (volatile u64*)g->sig;
-  volatile u64* ssh = (volatile u64*)g->sig_shadow;
-  volatile u64* cr = (volatile u64*)g->credit;
-  volatile u64* csh = (volatile u64*)g->credit_shadow;
-  u64* last = (u64*)g->last_sig;
-  volatile u64* raw = (volatile u64*)g->sig_raw;
-  const u32 total = g->n * g->nslots;
-  while (*stop == ~0ull && *gen == my_gen) {   // 收尾或换代都退(坑 #36)
-    for (u32 i = threadIdx.x; i < g->n; i += blockDim.x) csh[i] = cr[i];
-    for (u32 i = threadIdx.x; i < total; i += blockDim.x) {
-      u64 v = sig[i];
-      if (v != last[i]) {
-        if (raw) raw[i] = v;                  // 诊断:未校验的原始 sig(仅变化时写)
-        // 槽头(64B)先落 shadow,并校验 magic(+ 使用代数 tag,置于
-        // SliceHdr.crc 偏移 30,host-API 发送时写入 = sig 值):sig 与
-        // hdr/payload 若越序/丢失,头没就绪或还是上代的 —— 不发布、不记
-        // last,下轮重拷直到一致(120556 实测:一片 sig 先到旧头,按序
-        // 消费被永久卡死)。通过校验才 fence + 发布 sig。
-        const unsigned char* src = (const unsigned char*)g->ring + (u64)i * g->slot_bytes;
-        unsigned char* dst = (unsigned char*)g->hdr_shadow + (u64)i * g->hdr_stride;
-        u32 magic = 0, tag = 0;
-        for (u32 b = 0; b < g->hdr_bytes; b++) {
-          unsigned char x = src[b];
-          dst[b] = x;
-          if (b < 4) magic |= (u32)x << (8 * b);
-          if (b >= 30 && b < 34) tag |= (u32)x << (8 * (b - 30));
-        }
-        if (magic == g->magic_val && (!g->tag_check || tag == (u32)v)) {
-          __threadfence_system();
-          ssh[i] = v;
-          last[i] = v;
-        }
-      }
-    }
-    __nanosleep(20000);                       // ~20µs 镜像节拍
-  }
 }
 
 // 并行度模型(v2):block 按「描述符序号 % nch」分成 nch 个 channel,每

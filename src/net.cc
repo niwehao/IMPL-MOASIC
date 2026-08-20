@@ -2,7 +2,7 @@
  * + TCP(bootstrap 与控制面回退)。
  *
  *  机内 = POSIX 共享内存 SPSC 环承载 [头|序号],payload 在设备内存(IPC 映射)。
- *  跨机数据面在 verbs.cc(GDR)/ nvshmem_pipe.cc(Raven)。
+ *  跨机数据面在 verbs.cc(RDMA,双侧 host-bounce)。
  *  控制面 = 跨机恒走 verbs SEND(verbs.cc);TCP 承担 bootstrap(QP/uid 交换)、
  *  同机 peer 控制报文、以及 verbs 不可用时的回退。
  *
@@ -225,7 +225,7 @@ void shm_ring_region(ShmRing* r, void** base, size_t* bytes) {
 
 // ─────────────────────────────────────────────────────────── TCP 连接
 // TCP 只承担 ①bootstrap(QP/uid 交换,经 dconn 的阻塞收发)②控制面
-// (同机 peer + verbs ctrl 不可用时的回退)。slice 数据只走 verbs/nvshmem,
+// (同机 peer + verbs ctrl 不可用时的回退)。slice 数据只走 verbs,
 // 数据面建链失败 = 硬错 fail-fast,不静默降速。
 struct Conn {
   int fd = -1;
@@ -504,7 +504,6 @@ int net_blocking_exchange(Comm* c, int peer, const void* mine, void* remote, siz
 int net_poll(Comm* c) {
   int n = 0;
   if (c->verbs) n += verbs_poll(c);      // 数据面或 ctrl-only(O3)都要轮询
-  if (c->use_nvsh) n += nvsh_poll(c);
   epoll_event evs[64];
   int k = epoll_wait(c->epfd, evs, 64, 0);
   for (int i = 0; i < k; i++) {

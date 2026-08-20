@@ -142,10 +142,7 @@ int main(int argc, char** argv) {
     else if (a == "--tag") tag = nx();
     else if (a == "--sched") {
       std::string s = nx();
-      cfg.sched = (s == "mosaic") ? MOSAIC_SCHED_MOSAIC
-                : (s == "fast") ? MOSAIC_SCHED_FAST
-                : (s == "fast_struct") ? MOSAIC_SCHED_FAST_STRUCT
-                : MOSAIC_SCHED_DIRECT;
+      cfg.sched = (s == "mosaic") ? MOSAIC_SCHED_MOSAIC : MOSAIC_SCHED_DIRECT;
     }
     else if (a == "--corridors") cfg.corridors = atoi(nx().c_str());
     else if (a == "--waves") cfg.waves = atoi(nx().c_str());

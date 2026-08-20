@@ -14,3 +14,6 @@ __pycache__/
 *.log
 mosaic_dump_rank*.txt
 *.trace
+
+# 实验结果(记录归 xccl/Result/,不进代码库)
+results/

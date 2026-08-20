@@ -149,15 +149,6 @@ bool zerostream_arm(Comm* c);
 bool gate_arm(Comm* c, void* stream, uint32_t want);
 void devpipe_submit_prep(Comm* c, bool want_rwin);
 
-// MOSAIC_ZEROSTREAM:无流调用方(bench)也走 kdesc 零流数据面(nvshmem 面的
-// 待收敛项,Raven Gate 裁决 —— File/debug-819/local-0819-transport-cleanup-plan.md §2)。
-static bool zerostream_on() {
-  static const int v = [] {
-    const char* e = getenv("MOSAIC_ZEROSTREAM");
-    return e ? atoi(e) : 0;
-  }();
-  return v != 0;
-}
 bool async_mark_input(Comm* c, void* stream);
 }
 
@@ -206,7 +197,6 @@ static mosaicResult_t submit_coll(Comm* c,
           cudaEventRecord((cudaEvent_t)c->input_ev, (cudaStream_t)caller_stream) == cudaSuccess) {
         cudaStreamWaitEvent((cudaStream_t)c->stream_d2h, (cudaEvent_t)c->input_ev, 0);
         cudaStreamWaitEvent((cudaStream_t)c->stream_h2d, (cudaEvent_t)c->input_ev, 0);
-        if (c->use_nvsh) nvsh_wait_input(c, c->input_ev);
       }
     }
     c->gated = false;
@@ -222,17 +212,8 @@ static mosaicResult_t submit_coll(Comm* c,
     //     流上等 done_flag,本调用提交后即返回;下一次提交先隐式收尾上一笔
     //     (一代在飞)。窗口内引擎零 CUDA 调用(kdesc 消费者核搬运)。
     //   caller_stream == 0(bench 等无流调用方)⇒ host 阻塞等收尾。
-    // 流序完成当前只在 verbs 数据面启用:nvsh 面的 kdesc 化(零流窗口)在
-    // Raven Gate 收敛前保持阻塞路径(clean-plan §2 待收敛项)。
-    const bool stream_ordered = caller_stream != 0 && c->cfg.use_gpu && c->zs_cap &&
-                                !c->use_nvsh;
-    if (stream_ordered || (zerostream_on() && c->cfg.use_gpu && c->kdesc_ctr)) {
-      // ── S3(a):**零流执行进同步档**(MOSAIC_ZEROSTREAM=1,默认关;
-      // 待收敛项,Raven Gate 裁决 —— 见清理计划 §2)。
-      // 动机:默认档收一片要走:镜像 D2H → 主机轮询发现 → push 描述符 →
-      // 消费者核拷贝 → 主机读 done → 回 credit,六次跨主机/设备边界、两处受
-      // 轮询周期量化;NCCL/FlashMoE 是零次(设备侧自旋 + 核内直拷)。
-      // 同步档下永远只有一代在飞,坑 #41-#48 那一整类代际问题结构上不存在。
+    const bool stream_ordered = caller_stream != 0 && c->cfg.use_gpu && c->zs_cap;
+    if (stream_ordered) {
       // 没有 caller 流(bench_a2a:数据本就在设备上、无待决生产者)⇒ 输入
       // 天然就绪,不必也无法在流上打就绪标志。
       c->input_ready = !caller_stream;
@@ -242,7 +223,7 @@ static mosaicResult_t submit_coll(Comm* c,
                           ? async_mark_input(c, (void*)(uintptr_t)caller_stream)
                           : true;
       if (mk && zerostream_arm(c)) {
-        c->kdesc_active = true;      // ⇒ 消费者核交付/组装(nvsh 面另有镜像核)
+        c->kdesc_active = true;      // ⇒ 消费者核交付/组装
         if (stream_ordered && gate_arm(c, (void*)(uintptr_t)caller_stream,
                                        (uint32_t)c->coll_id))
           c->gated = true;           // 门已排上 caller 流,Ex 提交后即返回

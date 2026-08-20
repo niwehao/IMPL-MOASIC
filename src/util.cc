@@ -138,8 +138,6 @@ extern "C" const char* mosaicSchedName(int s) {
   switch (s) {
     case MOSAIC_SCHED_MOSAIC: return "mosaic";
     case MOSAIC_SCHED_DIRECT: return "direct";
-    case MOSAIC_SCHED_FAST: return "fast";
-    case MOSAIC_SCHED_FAST_STRUCT: return "fast_struct";
     default: return "?";
   }
 }

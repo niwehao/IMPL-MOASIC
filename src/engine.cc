@@ -6,7 +6,7 @@
  *
  * slice 状态机(2026-08-19 GDR 重构:payload 全程在设备内存):
  *   READY --(D2D 到 GPU staging)--> WIRE --(IPC 环 publish / verbs SEND(GDR)
- *                                          / nvshmem put)--> 对端
+ *                    verbs SEND)--> 对端
  *   对端 --(收齐)--> (终跳) D2D 到 recvbuf → 计交付
  *                  \(中转) D2D 到 relay 池 → 变回 READY 发下一跳
  * hop k+1 只在 hop k 的字节**完整落到中转 GPU 之后**才发(chunk availability)。
@@ -123,11 +123,8 @@ static CuDrv& cu_drv() {
   return d;
 }
 
-// ─────────────── S3 零流数据面:GPU 消费者内核 + 镜像核(MOSAIC_ZEROSTREAM)
-// 历史:曾有 (b) 异步提交语义(caller 流上的门核/回调/memops 三种门实现),
-// 2026-08-19 连同 MOSAIC_TORCH_ASYNC 一起删除 —— 多代同飞无法区分不同轮的
-// token(坑 #41-#48 一整类)。现在只剩 (a):同步语义下的零流执行数据面。
-// 交付拷贝由消费者核自己做,host 在完成路径上只写 pinned 内存
+// ─────────────── 零流数据面:GPU 消费者内核(流序窗口的搬运工)。
+// 交付/staging 拷贝由消费者核自己做,host 在完成路径上只写 pinned 内存
 // (推描述符 / 写 stop)。契约与内核见 consumer_kernel.cu。
 #include "consumer_kernel_ptx.h"
 // 消费者核并行度:blocks = nch × bpg(consumer_kernel.cu 的 channel 模型)。
@@ -156,13 +153,10 @@ static bool kcons_init(Comm* c) {
   if (d.mload(&mod, kConsumerPtx, 0, nullptr, nullptr) != 0) return false;
   void* fn = nullptr;
   if (d.mfunc(&fn, mod, "mosaic_consume") != 0) return false;
-  void* mf = nullptr;
-  if (d.mfunc(&mf, mod, "mosaic_mirror") != 0) return false;
   void* ff = nullptr;
   if (d.mfunc(&ff, mod, "mosaic_flagset") != 0) return false;
   c->kcons_mod = mod;
   c->kcons_fn = fn;
-  c->kmirror_fn = mf;
   c->kflag_fn = ff;
   return true;
 }
@@ -180,34 +174,6 @@ bool async_mark_input(Comm* c, void* stream) {
   void* params[2] = {&addr, &val};
   return cu_drv().launch(c->kflag_fn, 1, 1, 1, 1, 1, 1, 0, stream,
                          params, nullptr) == 0;
-}
-// S3 二期:镜像核懒初始化(填 cfg + 分配 last_sig)。**必须在任何常驻核
-// launch 之前调**:cudaMalloc 可能做设备级同步,消费者核已常驻时会等到天荒
-// 地老并持驱动锁把全进程 CUDA 冻死(110707 实测,与一期 cudaFree 教训同族)。
-static bool kmirror_prep(Comm* c) {
-  if (!c->use_nvsh || !c->kmirror_fn || !c->kmirror_cfg) return false;
-  if (c->kmirror_scratch_dev) return true;
-  KMirrorCfg* cfg = (KMirrorCfg*)c->kmirror_cfg;
-  if (nvsh_mirror_cfg(c, cfg) != 0) return false;
-  void* sc = nullptr;
-  size_t sb = (size_t)cfg->n * cfg->nslots * sizeof(uint64_t);
-  if (cudaMalloc(&sc, sb) != cudaSuccess) return false;
-  cudaMemset(sc, 0, sb);
-  cfg->last_sig = (uint64_t)(uintptr_t)sc;
-  cfg->stop = c->kdesc_ctr_dev + 128;
-  cfg->magic_val = SLICE_MAGIC;
-  cfg->tag_check = 1;   // crc 位专职槽代数 tag
-  c->kmirror_scratch_dev = cfg->last_sig;
-  return true;
-}
-// 镜像核挂载(纯 launch,无任何分配/同步;带本代 gen,见坑 #36)
-static bool kmirror_arm(Comm* c) {
-  if (!c->kmirror_scratch_dev) return false;
-  CuDrv& d = cu_drv();
-  unsigned long long cfg_a = c->kmirror_cfg_dev, gen = c->kdesc_gen;
-  void* params[2] = {&cfg_a, &gen};
-  return d.launch(c->kmirror_fn, 1, 1, 1, 256, 1, 1, 0, c->stream_mirror,
-                  params, nullptr) == 0;
 }
 // ── 流序完成的门核(2026-08-19):caller 流上的有界自旋核,等 done_flag ≥
 // 本 coll id 即退。**有界**(每 coll 一个,引擎完成必写 done_flag)⇒ 不踩
@@ -279,26 +245,16 @@ void devpipe_submit_prep(Comm* c, bool want_rwin) {
   }
 }
 
-// 供 api.cc 调(kdesc 数据面挂载):启动消费者核(+ nvsh 时的镜像核)。
-// 核退出 = coll 收尾写 stop(kdesc_release_gate)。完成语义:流序档由 caller
-// 流上的门核提供,阻塞档由 wait_coll 提供。
+// 供 api.cc 调(kdesc 数据面挂载):启动消费者核。核退出 = coll 收尾写 stop
+// (kdesc_release_gate)。完成语义:流序档由 caller 流上的门核提供,阻塞档由
+// wait_coll 提供。
 bool zerostream_arm(Comm* c) {
   if (!c->zs_cap || !c->stream_cons || !c->kcons_fn) return false;
   CuDrv& d = cu_drv();
-  // **每 collective 起一对核,coll 收尾即退**(坑 #36:常驻核 × torch 的
+  // **每 collective 起核,coll 收尾即退**(坑 #36:常驻核 × torch 的
   // cudaFree 设备级隐式同步 = 永久死锁,test_persist_sync 实测)。换代竞态
   // (坑 #32)由代际号根治:先 gen++ 杀掉任何残留老核,再复位 stop,再启动
   // 带新 gen 的新核 —— 老核见 gen 变即退,且此刻新描述符尚未推入。
-  // 已 launch 之后的任何失败都必须先把核叫停再返回 false —— 否则它就成了
-  // 常驻核,下一次 torch 的 cudaFree 直接死锁(坑 #36)。
-  auto bail = [&]() -> bool {
-    if (c->kdesc_ctr)
-      __atomic_store_n((uint64_t*)(c->kdesc_ctr + 128), c->kdesc_pushed, __ATOMIC_RELEASE);
-    c->kmirror_on = false;
-    return false;
-  };
-  // 镜像核首次的资源准备(含 cudaMalloc)必须在任何核 launch 之前(坑 #28)
-  if (c->use_nvsh && !kmirror_prep(c)) return false;
   c->kdesc_gen++;
   __atomic_store_n((uint64_t*)(c->kdesc_ctr + 192), c->kdesc_gen, __ATOMIC_RELEASE);
   __atomic_store_n((uint64_t*)(c->kdesc_ctr + 128), ~0ull, __ATOMIC_RELEASE);
@@ -315,10 +271,6 @@ bool zerostream_arm(Comm* c) {
     if (d.launch(c->kcons_fn, kcons_blocks(), 1, 1, kcons_threads(), 1, 1, 0,
                  c->stream_cons, params, nullptr) != 0)
       return false;                     // 没起来,无需叫停
-  }
-  if (c->use_nvsh) {
-    if (!kmirror_arm(c)) return bail();
-    c->kmirror_on = true;      // 本 coll 内 nvsh_poll 直读 shadow
   }
   return true;
 }
@@ -338,7 +290,6 @@ static bool kdesc_push(Comm* c, uint64_t src_dev, void* dst_dev, uint64_t len) {
 // input_ready:caller 流已越过提交时刻的输入事件点(flagset 核直写 pinned
 // 标志)。**消费者核在设备侧统一等这道门**(kernel 入口自旋 inflag),所以
 // kdesc 描述符可以立即推;本函数只服务仍由 host 直接发起的读 sendbuf 路径
-// (nvsh 的 host-API 直 put:NIC DMA 读 sendbuf,不经消费者核)。
 // 门的语义:生产者已写完 sendbuf,且 caller 流先前工作(含 caching allocator
 // 复用块上的旧 kernel)全部完成 —— 读 sendbuf 与写 recvbuf 都以它为界,
 // 否则出现"交付先落、旧 kernel 后写"的静默损坏(训练 loss 慢漂)。
@@ -352,8 +303,8 @@ static bool kdesc_input_ready(Comm* c) {
   return false;
 }
 
-// 解析设备可读的 src 指针。2026-08-19 起所有数据 payload 都在设备内存
-// (IPC 环 / NVSHMEM 对称堆 / verbs GPU 接收槽),直接可用。
+// 解析消费者核可读的 src 指针:IPC 环槽在设备内存,verbs 接收槽在 host
+// pinned(UVA 直读)。
 static uint64_t kdesc_resolve_src(Comm* c, const void* payload, int shm_ring,
                                   int verbs_token, bool via_nic) {
   (void)c; (void)via_nic;
@@ -365,10 +316,11 @@ static uint64_t kdesc_resolve_src(Comm* c, const void* payload, int shm_ring,
 static uint8_t* relay_ptr(Comm* c, int slot) {
   return (uint8_t*)c->relay_pool + (size_t)slot * (size_t)c->cfg.slice_bytes;
 }
-// verbs staging:payload 槽在 GPU 池(D2D 组装,RDMA GDR 直读);头由
+// verbs staging:payload 槽在 host pinned 池(消费者核 D2H 组装,NIC 从
+// host MR 读 = 两平台皆满线速;见 internal.h stage_pay_pool 注);头由
 // verbs_post_slice 写进 host 头池,双 SGE 同一 WR 发出
-static uint8_t* stage_gpu(Comm* c, int slot) {
-  return (uint8_t*)c->stage_gpu_pool + (size_t)slot * (size_t)c->cfg.slice_bytes;
+static uint8_t* stage_pay(Comm* c, int slot) {
+  return (uint8_t*)c->stage_pay_pool + (size_t)slot * (size_t)c->cfg.slice_bytes;
 }
 static int relay_alloc(Comm* c) {
   if (c->relay_free.empty()) return -1;
@@ -420,11 +372,9 @@ static constexpr int PEND_SLOTS = 64;
 // S3 二期:消费者核完成队列的条目(done 计数按序驱动)。
 // kind=0:交付(rx 收编);kind=1:机内 dev 环发送(完成后 host publish)
 struct KEntry {
-  int8_t kind = 0;          // 0=交付收编 1=dev环发送 2=纯拷贝 3=staging 转发
+  int8_t kind = 0;   // 0=交付收编 1=dev环发送 2=纯拷贝 4=verbs staging 转发
   InflightRx r;
   InflightTx t;
-  // kind=3(坑 #37):消费者核把 payload 拷进对称堆 staging 后,由 host-API 发出
-  struct { int peer; SliceHdr h; int tx_slot; int relay_slot; int hdr_slot; } st{};
 };
 
 // 这些队列不放进 internal.h(只有 engine 用),用一个隐藏状态挂在 Comm 上
@@ -628,16 +578,12 @@ static uint32_t pc_key(Comm* c, const SliceHdr& h) {
   uint32_t sub = ((h.dst % K) + K - (h.src % K)) % K;
   return base * K + sub;
 }
-// MOSAIC_HOTFIRST:**临时 A/B 开关**(方案 B 发送序实验,Gate 收敛后删败者)。
-// 1(默认)= 同结构序内热 dst 先发;0 = 旧 FIFO。
-static int opt_hotfirst() { static int v = env_flag("MOSAIC_HOTFIRST", 1); return v; }
-// 发送序:先 (wave,hop[,PC 色])结构序(PC 是决策语义,优先),再热度降序。
-// true = a 应排在 b 之前
+// 发送序:(wave,hop[,PC 色])结构序(PC 是决策语义)。曾试过结构序内
+// 再按 dst 热度降序(hot-pair-first):2×4 两个数据面各 24 格 A/B 全部
+// <0.5% = 噪声(raven-0819-verbs-plane)—— NIC 排干队列本身即空泡遮蔽,
+// 发送序不影响 makespan,已删。true = a 应排在 b 之前。
 static inline bool order_before(Comm* c, const SliceHdr& a, const SliceHdr& b) {
-  uint32_t ka = pc_key(c, a), kb = pc_key(c, b);
-  if (ka != kb) return ka < kb;
-  if (!opt_hotfirst() || c->dst_hot.empty()) return false;   // 稳定 FIFO
-  return c->dst_hot[a.dst] > c->dst_hot[b.dst];
+  return pc_key(c, a) < pc_key(c, b);
 }
 static void enqueue_hop(Comm* c, const SliceHdr& h, void* gpu_src, int relay_slot) {
   ReadySlice r;
@@ -645,7 +591,7 @@ static void enqueue_hop(Comm* c, const SliceHdr& h, void* gpu_src, int relay_slo
   const int peer = h.path[h.hop + 1];
   auto* es = ES(c);
   auto& q = c->topo.same_host(c->cfg.rank, peer) ? es->ready_nv : es->ready_nic;
-  if (c->pc_k > 0 || (opt_hotfirst() && !c->dst_hot.empty())) {
+  if (c->pc_k > 0) {
     auto it = q.end();
     while (it != q.begin()) {          // 从尾部找插入点(新 slice 通常排尾)
       auto prev = it; --prev;
@@ -688,14 +634,6 @@ static void emit_range(Comm* c, int dst, int corr, uint64_t off, uint64_t len, i
     MLOG_ERR("E2003 corridor %d 对 (%d→%d) 不可用", corr, c->cfg.rank, dst);
     return;
   }
-  emit_chain(c, dst, ch, off, len, wave);
-}
-
-// 供 fast_sched.cc / fast_native.cc 复用(共用同一发射路径 = 公平性的技术落点)
-void emit_range_pub(Comm* c, int dst, int corr, uint64_t off, uint64_t len, int wave) {
-  emit_range(c, dst, corr, off, len, wave);
-}
-void emit_chain_pub(Comm* c, int dst, const Chain& ch, uint64_t off, uint64_t len, int wave) {
   emit_chain(c, dst, ch, off, len, wave);
 }
 
@@ -838,19 +776,11 @@ static void emit_wave(Comm* c) {
 
 void engine_test_emit_wave(Comm* c) { emit_wave(c); }
 
-// DIRECT / FAST:不需要 dst 协调,每个 src 用全局矩阵自己算自己的行
+// DIRECT:不需要 dst 协调,每个 src 用全局矩阵自己算自己的行(诊断位)
 static void apply_policy(Comm* c, int peer, uint16_t wave, const PolicyEnt* e, int ne);
 
 static void plan_static(Comm* c) {
   const int n = c->cfg.nranks, me = c->cfg.rank;
-  if (c->cfg.sched == MOSAIC_SCHED_FAST) {
-    // 默认 = 官方调度器(fast_native.cc);MOSAIC_FAST_NATIVE=0 退回 structural 消融位
-    const char* e = getenv("MOSAIC_FAST_NATIVE");
-    if (e && atoi(e) == 0) sched_fast_struct_plan(c);
-    else sched_fast_native_plan(c);
-    return;
-  }
-  if (c->cfg.sched == MOSAIC_SCHED_FAST_STRUCT) { sched_fast_struct_plan(c); return; }
   for (int d = 0; d < n; d++) {
     if (d == me || c->scounts[d] == 0) continue;
     int corr = CORR_DIRECT;
@@ -931,17 +861,6 @@ static void coll_begin(Comm* c) {
 
   // (O2/P1 的 demand_prev 快照在 coll_try_finish 做 —— SSP 下 begin 时矩阵
   //  还残缺,结束时后台行大概率已齐,快照质量最好)
-
-  // O5:sendbuf 区间登记(NVSHMEM zcopy 用;非 zcopy/非 nvsh 内部是 no-op)
-  if (c->use_nvsh && c->cfg.use_gpu) {
-    size_t lo = SIZE_MAX, hi = 0;
-    for (int t = 0; t < n; t++) {
-      if (t == me || c->scounts[t] == 0) continue;
-      lo = std::min(lo, (size_t)c->sdispls[t]);
-      hi = std::max(hi, (size_t)c->sdispls[t] + c->scounts[t]);
-    }
-    if (hi > 0 && lo < hi) nvsh_note_sendbuf(c, (const uint8_t*)c->sendbuf + lo, hi - lo);
-  }
 
   // dev-pipe2:本 coll 直写账基线(DLV 计数跨 coll 单调,起点快照取差)
   c->rwin_published = false;
@@ -1127,17 +1046,6 @@ static void coll_begin(Comm* c) {
              c->coll_id, (unsigned long long)per_pair,
              (unsigned long long)(frag >> 10), cc, ratio, eff_W(c));
   }
-  // 发送序热度表(hot-pair-first):dst 入向列和。direct/FAST 同一发射路径
-  // 也用它,但全局 D 只在 mosaic 语义下可靠 —— 其余调度器用本地 scounts 近似
-  // (只影响本 rank 发往各 dst 的相对序,安全)。
-  c->dst_hot.assign(n, 0);
-  if (c->cfg.sched == MOSAIC_SCHED_MOSAIC) {
-    for (int s2 = 0; s2 < n; s2++)
-      for (int d2 = 0; d2 < n; d2++)
-        if (s2 != d2) c->dst_hot[d2] += D[(size_t)s2 * n + d2];
-  } else {
-    for (int d2 = 0; d2 < n; d2++) c->dst_hot[d2] = c->scounts[d2];
-  }
   c->pc_k = 0;
   if (c->cfg.sched == MOSAIC_SCHED_MOSAIC && c->cfg.pair_color != 0) {
     if (c->cfg.pair_color > 0) c->pc_k = c->cfg.pair_color;
@@ -1256,7 +1164,8 @@ static void coll_try_finish(Comm* c) {
   bool send_done = c->posted_send >= c->total_send &&
                    es->ready_nv.empty() && es->ready_nic.empty() && es->tx.empty();
   if (!(recv_done && send_done)) return;
-  // kdesc 档:交付走消费者核,完成还要求 kq 排干(纯内存判定)+ 自拷贝已推。
+  // kdesc 档:交付走消费者核,完成还要求 kq 排干(纯内存判定)+ 自拷贝已推
+  // + CE staging 在途队列排干(WR 已发出,sendbuf/中转字节均已离手)。
   if (c->self_copy_pending) return;
   if (c->kdesc_active && c->kdesc_consumed < c->kdesc_pushed) return;
   // **坑 #51**:零流档也不短路 h2d 检查 —— 自拷贝、以及 kdesc_resolve_src
@@ -1294,13 +1203,6 @@ static void coll_try_finish(Comm* c) {
     // caller 流后续算子随之放行)
     if (c->done_flag_host)
       __atomic_store_n((uint32_t*)c->done_flag_host, (uint32_t)c->coll_id, __ATOMIC_RELEASE);
-    // 镜像核收尾:**必须确认它真的退出了再往下走**(坑 #36 —— 只要有自旋核
-    // 在场,torch 下一次 cudaFree 就是永久死锁)。同步语义下这里同步一条
-    // 自己的流是安全的(坑 #38 的"caller 流未决门"已不存在)。
-    if (c->kmirror_on) {
-      if (c->stream_mirror) cudaStreamSynchronize((cudaStream_t)c->stream_mirror);
-      c->kmirror_on = false;
-    }
     c->coll_state.store(2);
     // O0 相位分解:submit→begin = demand 交换(含 hint 免等的效果),
     // submit→首发 = 协议启动全程,总时长含 app 侧的提交
@@ -1529,7 +1431,7 @@ void on_slice_arrived(Comm* c, const SliceHdr& h, void* payload, int shm_ring, i
 
   if (final_hop) {
     if ((int)h.dst != me) { MLOG_ERR("E2001 终跳落错 rank(%d≠%d)", h.dst, me); return; }
-    // 坑 #48 的兜底告警:代际闸门开在各收方路径的入口(nvsh 消费循环 / pump_shm),
+    // 坑 #48 的兜底告警:代际闸门开在各收方路径的入口(pump_shm / verbs 收路),
     // 走到这里就该已经是本代。若不是,说明还有一条路径没装闸门 —— 这一片会被
     // 落进**错的一代的 recvbuf** 并记进错的账。宁可吵,也不要静默损坏。
     if ((int16_t)(h.coll - (uint16_t)(c->coll_id & 0xFFFF)) != 0)
@@ -1539,9 +1441,9 @@ void on_slice_arrived(Comm* c, const SliceHdr& h, void* payload, int shm_ring, i
     r.h = h; r.via_nic = via_nic; r.final_hop = true;
     r.src_shm_ring = shm_ring; r.src_stage = stage_slot; r.src_verbs = verbs_token;
     void* gdst = (uint8_t*)c->recvbuf + c->rdispls[h.src] + h.off;
-    // S3 二期:异步 collective 的交付拷贝交给消费者核(host 只写描述符)。
-    // src 不可设备直读(TCP 堆内存)→ 旧拷贝路径(credit 前缀游标容乱序,
-    // 与 kdesc 混用安全);描述符环满且来源是 SHM 环 → **defer 而非混用**
+    // S3 二期:异步 collective 的交付拷贝交给消费者核(host 只写描述符;
+    // verbs RX 槽在 host pinned,SM 经 UVA 读 —— NCCL 收侧同款形态)。
+    // 描述符环满且来源是 SHM 环 → **defer 而非混用**
     // (shm_ring_pop 必须按序,两条完成队列交错会弹错槽)
     if (c->kdesc_active) {
       uint64_t sdev = kdesc_resolve_src(c, payload, shm_ring, verbs_token, via_nic);
@@ -1599,72 +1501,23 @@ static void pump_one_queue(Comm* c, std::deque<ReadySlice>& q, bool via_nic) {
     const int peer = r.h.path[r.h.hop + 1];
     const bool via_spine = via_nic && (c->topo.rail(me) != c->topo.rail(peer));
 
-    if (via_nic && c->use_nvsh) {
-      // S3 异步窗口:hop0 的 host-API put 直读 sendbuf,须等 caller 流上的
-      // flagset 核写过就绪标志(纯内存读 —— 窗口内禁一切 CUDA 查询)
-      if (c->kdesc_active && r.h.hop == 0 && !kdesc_input_ready(c))
-        return;                                 // 输入未就绪 = 背压
-      // NVSHMEM 直发:payload 不下 host,put 直接从设备源(sendbuf/relay 池)
-      int rc2 = nvsh_post_slice(c, peer, r.h, r.gpu_src, r.relay_slot);
-      if (rc2 == 1) return;                     // credit/staging 背压
-      if (rc2 == 2) {
-        // host-API 发送:先由**消费者核**把 [hdr|payload] 拼进对称堆 staging 槽
-        // (天生已注册),拼完一笔 RDMA 写发出。两个理由:①torch 某些 sendbuf
-        // 注册不上(E5019),而 host-API put 要求源已注册;②hdr 与 payload 必须
-        // 同生共死,分两笔发会出现"sig 到了、头还是上一代"的永久卡死(坑 #39)。
-        // **绝不回退流路径**:门未决时引擎流会被通道碰撞卡死(坑 #38)。
-        int ts = -1; void* sdst = nullptr;
-        int hs = -1; uint64_t hsrc = 0;
-        if (nvsh_stage_alloc(c, peer, &ts, &sdst) != 0) return;  // 无槽 = 背压
-        if (nvsh_hdr_stage(c, r.h, peer, &hs, &hsrc) != 0) {     // 头池背压
-          nvsh_stage_free(c, peer, ts);
-          return;
-        }
-        uint8_t* sbase = (uint8_t*)sdst - HDR_STRIDE;            // 槽首(头区)
-        // 两条描述符:先拷头(64B),再拷 payload;kq 按序 ⇒ 第二条完成即可发
-        if (!kdesc_push(c, hsrc, sbase, HDR_STRIDE) ||
-            !kdesc_push(c, (uint64_t)(uintptr_t)r.gpu_src, sdst, r.h.len)) {
-          nvsh_stage_free(c, peer, ts);
-          nvsh_hdr_free(c, hs);
-          return;                                                // 环满 = 背压
-        }
-        KEntry e0; e0.kind = 2;                                  // 头拷贝(无动作)
-        es->kq.push_back(e0);
-        KEntry e; e.kind = 3;
-        e.st.peer = peer; e.st.h = r.h; e.st.tx_slot = ts;
-        e.st.relay_slot = r.relay_slot; e.st.hdr_slot = hs;
-        es->kq.push_back(e);
-        c->buck[up_kind(true)].take(r.h.len);
-        if (via_spine) c->buck[RES_SPINE_UP].take(r.h.len);
-        if (r.h.hop == 0) c->posted_send += r.h.len;
-        if (!c->ph_first_post_ns) c->ph_first_post_ns = now_ns();
-        q.pop_front();
-        continue;
-      }
-      if (rc2 < 0) { MLOG_ERR("E5015 nvsh 发送失败 (r%d)", peer); return; }
-      c->buck[up_kind(true)].take(r.h.len);
-      if (via_spine) c->buck[RES_SPINE_UP].take(r.h.len);
-      if (r.h.hop == 0) c->posted_send += r.h.len;
-      if (!c->ph_first_post_ns) c->ph_first_post_ns = now_ns();
-      if (c->kdesc_active) det_feed(c, 0, r.h.len);   // host-API 即发即计
-      else c->nic_tx_outstanding++;
-      c->st.bytes_sent += r.h.len;
-      c->st.corridor_bytes[r.h.corr & 7] += r.h.len;
-      q.pop_front();
-      continue;
-    }
-
     InflightTx t;
     t.h = r.h; t.peer = peer; t.via_nic = via_nic; t.relay_slot = r.relay_slot;
     void* hdst = nullptr;
     MTRACE(TE_SLICE_POST, ((uint32_t)r.h.src << 16) | r.h.dst, r.h.off,
            ((uint64_t)r.h.len << 8) | r.h.hop);
-    // 流序窗口(kdesc):verbs TX 的 staging D2D 交消费者核 —— 引擎零 CUDA 调用。
-    // 拷完(kq 排干,kind=4)再发 WR。hop0 源 = sendbuf,须等 input_ready 标志。
+    // 流序窗口(kdesc):verbs TX 的 staging 拷贝(sendbuf/relay → host pinned,
+    // SM 经 UVA 写)交消费者核 —— 引擎零 CUDA 调用。**窗口内引擎不许碰任何
+    // CUDA API**:gated 下 app 线程在 torch sync 里持驱动锁,event 线程一句
+    // cudaMemcpyAsync 就互锁(29401070-011125 MoE 实测:node1 四 rank event
+    // 线程连 watchdog 都冻死,724s 无进展)。SM 出向流写不再有代价:RX 已改
+    // host-bounce,不存在会被压制的入向 GDR 写(见 verbs.cc 头注)。
+    // 拷完(kq 排干,kind=4)再发 WR。hop0 源 = sendbuf,输入门在消费者核内。
     if (via_nic && c->kdesc_active) {
       int slot = stage_alloc2(c);
       if (slot < 0) return;                     // staging 用完 = 背压
-      if (!kdesc_push(c, (uint64_t)(uintptr_t)r.gpu_src, stage_gpu(c, slot), r.h.len)) {
+      if (!kdesc_push(c, (uint64_t)(uintptr_t)r.gpu_src,
+                      stage_pay(c, slot), r.h.len)) {
         stage_release(c, slot);
         return;                                 // 描述符环满 = 背压
       }
@@ -1682,7 +1535,7 @@ static void pump_one_queue(Comm* c, std::deque<ReadySlice>& q, bool via_nic) {
       int slot = stage_alloc2(c);
       if (slot < 0) return;                       // staging 用完 = 背压
       t.stage_slot = slot;
-      hdst = stage_gpu(c, slot);                  // D2D 到 GPU staging(GDR 直发源)
+      hdst = stage_pay(c, slot);                  // D2H 到 host pinned staging
     } else {
       ShmRing* ring = c->tx_ring[peer];
       // S3 二期:dev 环(CUDA IPC)发送交消费者核 —— 跨 GPU cudaMemcpyAsync
@@ -1766,7 +1619,6 @@ static void pump_ready(Comm* c) {
   auto* es = ES(c);
   pump_one_queue(c, es->ready_nv, false);
   pump_one_queue(c, es->ready_nic, true);
-  if (c->use_nvsh) nvsh_flush(c);   // host-API 批次 quiet(坑 #39)
 }
 
 static void pump_tx(Comm* c) {
@@ -1823,8 +1675,7 @@ static void rx_retire(Comm* c, InflightRx& r) {
   if (r.src_shm_ring >= 0) shm_ring_pop(c->rx_ring[r.src_shm_ring]);
   if (r.src_stage >= 0) stage_release(c, r.src_stage);
   if (r.src_verbs >= 0) {
-    if (c->use_nvsh) nvsh_credit(c, r.src_verbs);      // 晚回 credit = 背压
-    else verbs_repost(c, r.src_verbs);                 // 不补投 = RNR 背压
+    verbs_repost(c, r.src_verbs);                      // 不补投 = RNR 背压
     MTRACE(TE_REPOST, ((uint32_t)r.h.src << 16) | r.h.dst, r.h.off,
            ((uint64_t)r.h.len << 8) | r.h.hop);   // credit 释放时刻
   }
@@ -1859,19 +1710,7 @@ static void pump_rx(Comm* c) {
     uint64_t done = __atomic_load_n((uint64_t*)(c->kdesc_ctr + 64), __ATOMIC_ACQUIRE);
     while (!es->kq.empty() && c->kdesc_consumed < done) {
       KEntry& e = es->kq.front();
-      if (e.kind == 3) {
-        // staging 拷贝完成 ⇒ host-API 发出(源 = 对称堆槽,已注册)
-        if (nvsh_post_staged(c, e.st.peer, e.st.h, e.st.tx_slot, e.st.relay_slot,
-                             e.st.hdr_slot) != 0) {
-          MLOG_ERR("E5022 staged 发送失败 (r%d)", e.st.peer);
-          nvsh_stage_free(c, e.st.peer, e.st.tx_slot);
-          nvsh_hdr_free(c, e.st.hdr_slot);
-        } else {
-          c->st.bytes_sent += e.st.h.len;
-          c->st.corridor_bytes[e.st.h.corr & 7] += e.st.h.len;
-          det_feed(c, 0, e.st.h.len);
-        }
-      } else if (e.kind == 6) {
+      if (e.kind == 6) {
         // dev-pipe2 直写完成(消费者核已把字节写进对端 recvbuf):
         // 经 SHM 邮箱给对端记交付账;对端 fold 后计入它的 total_recv/FIN
         shm_dlv_add(c->tx_ring[e.t.peer], e.t.h.len);
@@ -1879,7 +1718,7 @@ static void pump_rx(Comm* c) {
         c->st.corridor_bytes[e.t.h.corr & 7] += e.t.h.len;
         if (e.t.relay_slot >= 0) c->relay_free.push_back(e.t.relay_slot);
       } else if (e.kind == 4) {
-        // verbs 流序 TX:消费者核已把 payload 拷进 GPU staging ⇒ 发 WR
+        // verbs 流序 TX:消费者核已把 payload 拷进 host staging ⇒ 发 WR
         c->nic_tx_outstanding++;
         MTRACE(TE_SLICE_TX, ((uint32_t)e.t.h.src << 16) | e.t.h.dst, e.t.h.off,
                ((uint64_t)e.t.h.len << 8) | e.t.h.hop);
@@ -2097,20 +1936,6 @@ static void watchdog(Comm* c) {
     head("nvq", es->ready_nv, false);
     head("nicq", es->ready_nic, true);
     if (ho) MLOG_ERR("E2002 队头: %s", hb);
-  }
-  if (c->use_nvsh && !c->gated) {
-    // 流序窗口(gated)内禁一切 CUDA 查询(并发 cudaFree 会把查询楔死,
-    // 诊断不能反过来杀引擎 —— gate_probe P2);阻塞档照常打活性。
-    char nb[640];
-    nvsh_dbg(c, nb, sizeof(nb));
-    int iq = (c->cfg.use_gpu && c->input_ev)
-                 ? (int)cudaEventQuery((cudaEvent_t)c->input_ev) : 0;
-    int gq = c->stream_cons ? (int)cudaStreamQuery((cudaStream_t)c->stream_cons) : 0;
-    int cq = c->caller_stream
-                 ? (int)cudaStreamQuery((cudaStream_t)(uintptr_t)c->caller_stream) : -2;
-    MLOG_ERR("E2002 nvsh 活性: %s caller=%d inputEv=%d gate=%d inflag=%llu", nb, cq, iq, gq,
-             c->kdesc_ctr ? (unsigned long long)__atomic_load_n(
-                                (uint64_t*)(c->kdesc_ctr + 160), __ATOMIC_ACQUIRE) : 0ull);
   }
   char rb[512]; int o = 0;
   for (int p = 0; p < c->cfg.nranks && o < 400; p++) {
@@ -2468,23 +2293,9 @@ void engine_start(Comm* c) {
           c->kdesc_ctr_dev = (uint64_t)(uintptr_t)ctr_d;
           c->kdesc_prog_dev = (uint64_t)(uintptr_t)prog_d;
           c->kdesc_cap = cap;
-          // 镜像核资源(cfg 内容懒填 —— nvsh 环此刻还没建)+ 常驻消费者核专用流
-          void* mcfg = nullptr; void* mcfg_d = nullptr;
-          cudaStream_t sm = nullptr, sc2 = nullptr;
-          if (cudaHostAlloc(&mcfg, sizeof(KMirrorCfg),
-                            cudaHostAllocMapped | cudaHostAllocPortable) == cudaSuccess &&
-              cudaHostGetDevicePointer(&mcfg_d, mcfg, 0) == cudaSuccess &&
-              cudaStreamCreateWithFlags(&sm, cudaStreamNonBlocking) == cudaSuccess &&
-              cudaStreamCreateWithFlags(&sc2, cudaStreamNonBlocking) == cudaSuccess) {
-            memset(mcfg, 0, sizeof(KMirrorCfg));
-            c->kmirror_cfg = mcfg;
-            c->kmirror_cfg_dev = (uint64_t)(uintptr_t)mcfg_d;
-            c->stream_mirror = sm;
+          cudaStream_t sc2 = nullptr;
+          if (cudaStreamCreateWithFlags(&sc2, cudaStreamNonBlocking) == cudaSuccess)
             c->stream_cons = sc2;
-          } else {
-            if (sm) cudaStreamDestroy(sm);
-            if (mcfg) cudaFreeHost(mcfg);
-          }
           return true;
         };
         if (kdesc_setup()) {
@@ -2528,15 +2339,14 @@ void engine_start(Comm* c) {
   }
   size_t sb = (size_t)c->cfg.slice_bytes;
   c->stage_slots = NST; c->relay_slots = NRE;
-  // verbs staging 只在 verbs 数据面需要(nvshmem 数据面省 128MB 显存)
-  const char* nic_env0 = getenv("MOSAIC_NIC");
-  const bool plane_nvsh = nic_env0 && strcmp(nic_env0, "nvshmem") == 0;
   if (c->cfg.use_gpu) {
-    // host 头池(64B/槽,CPU 写头 + RDMA SGE0)+ GPU payload 池(GDR 直发源)
+    // host 头池(64B/槽,CPU 写头 + RDMA SGE0)+ host pinned payload 池
+    // (Mapped:消费者核经 UVA 直写,NIC 从 host MR 读;见 internal.h 注)
     CUCHK(cudaHostAlloc((void**)&c->stage_hdr_pool, (size_t)NST * HDR_STRIDE,
                         cudaHostAllocPortable), "hostAlloc stage hdr");
-    if (!plane_nvsh)
-      CUCHK(cudaMalloc(&c->stage_gpu_pool, sb * NST), "malloc stage gpu");
+    CUCHK(cudaHostAlloc(&c->stage_pay_pool, sb * NST,
+                        cudaHostAllocPortable | cudaHostAllocMapped),
+          "hostAlloc stage pay");
     CUCHK(cudaMalloc(&c->relay_pool, sb * NRE), "malloc relay");
     // NV 管的 payload 环:恒在设备内存(CUDA IPC,GPU↔GPU 直达)。
     // 句柄经环头(共享内存)交给对端。
@@ -2582,38 +2392,18 @@ void engine_start(Comm* c) {
   for (int i = NST - 1; i >= 0; i--) c->stage_free.push_back(i);
   for (int i = NRE - 1; i >= 0; i--) c->relay_free.push_back(i);
 
-  // ── 跨机数据面选择:MOSAIC_NIC=verbs(默认)| nvshmem(Raven;待收敛项,
-  // 见 File/debug-819/local-0819-transport-cleanup-plan.md §2)。
-  // 数据面建链失败 = 硬错 fail-fast(无 TCP 回退,不静默降速)。
-  // 跨机控制面**恒走 verbs SEND**(Gate1 实测 256KB A2A 160.4→82.7µs):
-  // verbs_setup 每 peer 附带一条 ctrl QP;nvshmem 数据面形态下建 ctrl-only
-  // verbs;建链失败回退 TCP(告警,确定性)。
+  // ── 跨机数据面 = RDMA verbs(TX/RX 双侧 host-bounce,见 verbs.cc 头注)。
+  // 建链失败 = 硬错 fail-fast(无 TCP 回退,不静默降速)。
+  // 跨机控制面走同一 verbs 建链的独立 ctrl QP(单程 ~5µs vs TCP 30-60µs)。
   {
     bool has_remote = false;
     for (int p = 0; p < c->cfg.nranks; p++)
       if (p != c->cfg.rank && !c->topo.same_host(c->cfg.rank, p)) { has_remote = true; break; }
-    if (has_remote && plane_nvsh) {
-      if (nvsh_setup(c) == 0) {
-        c->use_nvsh = true;
-        MLOG_INFO("跨机数据面 = NVSHMEM(put+signal)");
-      } else {
-        nvsh_teardown(c);
-        MLOG_ERR("E5016 NVSHMEM 建链失败(数据面无 TCP 回退,硬错)");
-        c->err = "E5016 NVSHMEM 建链失败";
-        return;
-      }
-      if (verbs_setup(c, /*data_plane=*/false) == 0) {
-        c->ctrl_verbs = true;
-        MLOG_INFO("控制面 = RDMA SEND(ctrl-only QP;同机 peer 走 TCP)");
-      } else {
-        verbs_teardown(c);
-        MLOG_WARN("E1029 verbs ctrl 建链失败,控制面回退 TCP");
-      }
-    } else if (has_remote) {
+    if (has_remote) {
       if (verbs_setup(c, /*data_plane=*/true) == 0) {
         c->use_verbs = true;
         c->ctrl_verbs = true;
-        MLOG_INFO("跨机数据面 = RDMA verbs(GDR)+ 控制面 RDMA SEND");
+        MLOG_INFO("跨机数据面 = RDMA verbs(host-bounce)+ 控制面 RDMA SEND");
       } else {
         verbs_teardown(c);
         MLOG_ERR("E1028 verbs 建链失败(数据面无 TCP 回退,硬错)");
@@ -2663,17 +2453,13 @@ void engine_start(Comm* c) {
 void engine_stop(Comm* c) {
   c->running.store(false);
   if (c->ev_thread.joinable()) c->ev_thread.join();
-  // 常驻核收摊必须在 nvsh_teardown 之前(镜像核还在读对称堆):写 stop
-  // (消费者排干即退,镜像核见 stop≠~0 即退)→ 等两核退出
+  // 消费者核收摊:写 stop(排干即退)+ gen++(核见变即退),再等流空
   if (c->kdesc_ctr) {
-    // 双保险:gen++(核见变即退)+ stop(排干退出);再等两条流空
     __atomic_store_n((uint64_t*)(c->kdesc_ctr + 192), ++c->kdesc_gen, __ATOMIC_RELEASE);
     __atomic_store_n((uint64_t*)(c->kdesc_ctr + 128), c->kdesc_pushed, __ATOMIC_RELEASE);
     if (c->stream_cons) cudaStreamSynchronize((cudaStream_t)c->stream_cons);
-    if (c->stream_mirror) cudaStreamSynchronize((cudaStream_t)c->stream_mirror);
   }
-  if (c->verbs) { verbs_teardown(c); c->use_verbs = false; }   // ctrl-only 形态也要拆
-  if (c->use_nvsh) { nvsh_teardown(c); c->use_nvsh = false; }
+  if (c->verbs) { verbs_teardown(c); c->use_verbs = false; }
   if (c->cfg.use_gpu) {
     for (void* e : c->ev_pool) cudaEventDestroy((cudaEvent_t)e);
     if (c->done_flag_host) { cudaFreeHost(c->done_flag_host); c->done_flag_host = nullptr; }
@@ -2681,11 +2467,8 @@ void engine_stop(Comm* c) {
     if (c->kdesc_ctr) { cudaFreeHost(c->kdesc_ctr); c->kdesc_ctr = nullptr; }
     if (c->kdesc_prog_dev) { cudaFree((void*)(uintptr_t)c->kdesc_prog_dev); c->kdesc_prog_dev = 0; }
     if (c->stream_cons) { cudaStreamDestroy((cudaStream_t)c->stream_cons); c->stream_cons = nullptr; }
-    if (c->stream_mirror) { cudaStreamDestroy((cudaStream_t)c->stream_mirror); c->stream_mirror = nullptr; }
-    if (c->kmirror_cfg) { cudaFreeHost(c->kmirror_cfg); c->kmirror_cfg = nullptr; }
-    if (c->kmirror_scratch_dev) { cudaFree((void*)(uintptr_t)c->kmirror_scratch_dev); c->kmirror_scratch_dev = 0; }
     if (c->stage_hdr_pool) cudaFreeHost(c->stage_hdr_pool);
-    if (c->stage_gpu_pool) cudaFree(c->stage_gpu_pool);
+    if (c->stage_pay_pool) cudaFreeHost(c->stage_pay_pool);
     if (c->relay_pool) cudaFree(c->relay_pool);
     if (c->stream_d2h) cudaStreamDestroy((cudaStream_t)c->stream_d2h);
     if (c->stream_h2d) cudaStreamDestroy((cudaStream_t)c->stream_h2d);
