@@ -905,6 +905,12 @@ static void coll_begin(Comm* c) {
     d.total_expect += b;
   }
   c->total_recv_expect = d.total_expect;
+  // 零收量 rank 也必须广播 FIN:中转义务门(coll_try_finish)等全体 FIN,
+  // 不发会把别人钉死;语义上它本就已"收齐"。
+  if (d.total_expect == 0) {
+    es->fin_sent = true;
+    ctrl_bcast(c, CT_FIN, (uint16_t)(c->coll_id & 0xFFFF), nullptr, 0);
+  }
   c->total_send = 0;
   for (int t = 0; t < n; t++) if (t != me) c->total_send += c->scounts[t];
   c->posted_send = 0;
@@ -1168,6 +1174,16 @@ static void coll_try_finish(Comm* c) {
   // + CE staging 在途队列排干(WR 已发出,sendbuf/中转字节均已离手)。
   if (c->self_copy_pending) return;
   if (c->kdesc_active && c->kdesc_consumed < c->kdesc_pushed) return;
+  // 中转义务门(local-0820-gated-bench bug B):走廊可用的 coll,自己的账
+  // 清了还不够 —— 我可能仍要为别的 (src,dst) 对中转,而中转片何时到、
+  // 是否会来,本 rank 无法预知(路径由各 dst 的波策略动态定)。
+  // FIN(d) ⇔ d 已收齐 ⇔ 经我中转给 d 的字节已全部过手,且 d 不会再发
+  // 路由经我的波 ⇒ 集齐全体 FIN 后中转义务必然为空,拆消费者核才安全
+  // (gated 下核一拆,迟到的中转片就无人搬运 —— 引擎不许兜底调 CUDA)。
+  // 直发调度(direct/fast)、单机形态、C=1 无中转,不受此门。
+  if (c->cfg.sched == MOSAIC_SCHED_MOSAIC && c->cfg.corridors > 1 &&
+      c->cfg.nranks > c->cfg.gpus_per_host &&
+      es->fin_got < c->cfg.nranks - 1) return;
   // **坑 #51**:零流档也不短路 h2d 检查 —— 自拷贝、以及 kdesc_resolve_src
   // 失败时回退的交付拷贝**仍在 h2d 流上**,短路掉就可能在它们落盘前宣布完成,
   // torch 随即读走半成品的 recvbuf(现象:训练 loss 轻微漂且逐次不同)。
@@ -1388,7 +1404,7 @@ void on_ctrl_msg(Comm* c, int peer, const CtrlHdr& h, const void* body) {
     case CT_FIN: {  // PACE:hot 完成即放行。带 cid:当前的直接记;更晚的寄存;陈旧的丢
       uint16_t fcid = h.aux;
       if (es->coll_started && fcid == (uint16_t)(c->coll_id & 0xFFFF)) {
-        es->fin_got++; c->peer_fin[peer] = 1;
+        if (!c->peer_fin[peer]) { es->fin_got++; c->peer_fin[peer] = 1; }
       } else if (!es->coll_started || fcid != (uint16_t)(c->coll_id & 0xFFFF)) {
         // 可能属于我尚未 begin 的 collective(对端超前);按低 2 位寄存
         int si = fcid & (PEND_SLOTS - 1);
@@ -1546,7 +1562,11 @@ static void pump_one_queue(Comm* c, std::deque<ReadySlice>& q, bool via_nic) {
       // 对端窗口未发布 = 对端 input 未就绪 ⇒ 背压等(与交付输入门同语义);
       // 窗口哨兵 ~0 = 对端声明不可直写 ⇒ 走环路径;映射 miss ⇒ 本 coll 走环,
       // 句柄排队下一次 submit 补 open。
-      if (c->kdesc_active && ring && r.h.hop + 1 >= r.h.nhops) {
+      // **仅限 hop0(src==me)**:RWIN 发布的偏移是「写入者自己的段」
+      // (rdispls[写入者]),中转片 src≠me 直写会落进错误的段(按原始 src
+      // 落位只有环路径的交付侧会做,engine.cc pump_shm)——n=8 hotdst 实测
+      // 机内源超收 1.5×/跨机源饿死 + 数据腐蚀(local-0820-gated-bench)。
+      if (c->kdesc_active && ring && r.h.hop + 1 >= r.h.nhops && r.h.src == me) {
         uint8_t hbuf[64];
         uint64_t doff = 0;
         if (!shm_rwin_read(c->tx_ring[peer], (uint32_t)c->coll_id, hbuf, &doff))

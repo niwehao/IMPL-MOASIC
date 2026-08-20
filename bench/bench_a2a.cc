@@ -206,6 +206,12 @@ int main(int argc, char** argv) {
   mosaicComm_t comm;
   if (mosaicCommInit(&comm, &cfg) != mosaicSuccess) { fprintf(stderr, "init 失败\n"); return 1; }
 
+  // 完成契约与训练对齐(F.3 决定,2026-08-20):bench 提供一条真流走 gated
+  // 流序档 —— 与 torch 路径同一条代码(消费者核搬运 + dev-pipe2 kind=6 由此
+  // 获得 bench 覆盖)。use_gpu=0(离线回放/CPU 单测)仍走无流阻塞契约。
+  cudaStream_t bench_stream = nullptr;
+  if (cfg.use_gpu) cudaStreamCreate(&bench_stream);
+
   std::vector<double> times;
   double makespan_best = 1e18;
   for (int it = 0; it < warmup + iters; it++) {
@@ -214,7 +220,9 @@ int main(int argc, char** argv) {
     // 症状极具误导性:交付字节数完全正确、内容全 0。必须先同步再进 barrier。
     if (cfg.use_gpu) { cudaMemset(rbuf, 0, rbytes); cudaDeviceSynchronize(); }
     mosaicBarrier(comm);
-    mosaicResult_t r = mosaicAlltoallv(comm, sbuf, sc.data(), sd.data(), rbuf, rc.data(), rd.data());
+    mosaicResult_t r = mosaicAlltoallvEx(comm, sbuf, sc.data(), sd.data(),
+                                         rbuf, rc.data(), rd.data(),
+                                         (uint64_t)(uintptr_t)bench_stream, 0, 0);
     if (r != mosaicSuccess) {
       fprintf(stderr, "rank %d alltoallv 失败 rc=%d: %s\n", me, r, mosaicGetLastError(comm));
       return 2;
@@ -282,5 +290,6 @@ int main(int argc, char** argv) {
     fflush(stdout);
   }
   mosaicCommDestroy(comm);
+  if (bench_stream) cudaStreamDestroy(bench_stream);
   return 0;
 }
