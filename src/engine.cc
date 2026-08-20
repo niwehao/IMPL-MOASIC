@@ -431,6 +431,33 @@ static EngineState* ES(Comm* c) {
   g_es.push_back({c, e});
   return e;
 }
+// ── 子描述符切分:把一片拆成 KDESC_CHUNK 粒度推入,浅队列下也能吃满消费者核
+// 的 channel 宽度。trace 归因(29425220-011011):多波形态队列浅(~20 片),
+// 1MB 单描述符只由 1 个 channel 服务(~0.5ms/片),整机交付仅 ~1.6GB/s;
+// 深队列(W=1)同核可达 ~7GB/s。切 4 块 ⇒ 4 channel 并行搬同一片。
+// 前 k-1 块挂 kind=2 空完成(kq 与 ring 一一对应;done 是连续前缀 ⇒
+// **尾块完成必然蕴含全片完成**),调用方在返回 true 后为尾块押真正的完成动作。
+// false = 环空间不足(整片背压,不推半截)。
+static const uint64_t KDESC_CHUNK = 256 << 10;   // 256KB:与 slice 1MB / 4 channel 匹配;
+                                                 // 再小则头部开销(轮询/量化)占比上升
+static bool kdesc_room(Comm* c, uint64_t len) {
+  uint32_t parts = (uint32_t)((len + KDESC_CHUNK - 1) / KDESC_CHUNK);
+  if (parts == 0) parts = 1;
+  return c->kdesc_pushed - c->kdesc_consumed + parts <= c->kdesc_cap;
+}
+static bool kdesc_push_split(Comm* c, uint64_t src_dev, void* dst_dev, uint64_t len) {
+  if (!kdesc_room(c, len)) return false;
+  auto* es = ES(c);
+  uint64_t off = 0;
+  while (len - off > KDESC_CHUNK) {
+    kdesc_push(c, src_dev + off, (uint8_t*)dst_dev + off, KDESC_CHUNK);  // 空间已查,必成
+    KEntry e; e.kind = 2;
+    es->kq.push_back(e);
+    off += KDESC_CHUNK;
+  }
+  return kdesc_push(c, src_dev + off, (uint8_t*)dst_dev + off, len - off);
+}
+
 static void ES_drop(Comm* c) {
   std::lock_guard<std::mutex> lk(g_es_mu);
   for (size_t i = 0; i < g_es.size(); i++)
@@ -1553,7 +1580,7 @@ void on_slice_arrived(Comm* c, const SliceHdr& h, void* payload, int shm_ring, i
     // (shm_ring_pop 必须按序,两条完成队列交错会弹错槽)
     if (c->kdesc_active) {
       uint64_t sdev = kdesc_resolve_src(c, payload, shm_ring, verbs_token, via_nic);
-      if (sdev && kdesc_push(c, sdev, gdst, h.len)) {   // 输入门在消费者核内
+      if (sdev && kdesc_push_split(c, sdev, gdst, h.len)) {   // 输入门在消费者核内
         KEntry e; e.kind = 0; e.r = r;
         es->kq.push_back(e);
         return;
@@ -1579,7 +1606,7 @@ void on_slice_arrived(Comm* c, const SliceHdr& h, void* payload, int shm_ring, i
     c->st.bytes_relayed += h.len;
     if (c->kdesc_active) {
       uint64_t sdev = kdesc_resolve_src(c, payload, shm_ring, verbs_token, via_nic);
-      if (sdev && kdesc_push(c, sdev, relay_ptr(c, slot), h.len)) {
+      if (sdev && kdesc_push_split(c, sdev, relay_ptr(c, slot), h.len)) {
         KEntry e; e.kind = 0; e.r = r;
         es->kq.push_back(e);
         return;
@@ -1622,8 +1649,8 @@ static void pump_one_queue(Comm* c, std::deque<ReadySlice>& q, bool via_nic) {
     if (via_nic && c->kdesc_active) {
       int slot = stage_alloc2(c);
       if (slot < 0) return;                     // staging 用完 = 背压
-      if (!kdesc_push(c, (uint64_t)(uintptr_t)r.gpu_src,
-                      stage_pay(c, slot), r.h.len)) {
+      if (!kdesc_push_split(c, (uint64_t)(uintptr_t)r.gpu_src,
+                            stage_pay(c, slot), r.h.len)) {
         stage_release(c, slot);
         return;                                 // 描述符环满 = 背压
       }
@@ -1675,9 +1702,9 @@ static void pump_one_queue(Comm* c, std::deque<ReadySlice>& q, bool via_nic) {
               c->ipc_pending.push_back(key);         // 下次 submit(门外)补 open
           }
           if (known && base) {
-            if (c->kdesc_pushed - c->kdesc_consumed >= c->kdesc_cap) return;  // 背压
             uint8_t* dst = (uint8_t*)base + doff + r.h.off;
-            if (!kdesc_push(c, (uint64_t)(uintptr_t)r.gpu_src, dst, r.h.len)) return;
+            if (!kdesc_push_split(c, (uint64_t)(uintptr_t)r.gpu_src, dst, r.h.len))
+              return;                                  // 背压(含切分后的条数)
             KEntry e; e.kind = 6; e.t.peer = peer; e.t.h = r.h;
             e.t.relay_slot = r.relay_slot;
             es->kq.push_back(e);
@@ -1692,13 +1719,13 @@ static void pump_one_queue(Comm* c, std::deque<ReadySlice>& q, bool via_nic) {
         }
       }
       if (c->kdesc_active && ring) {
-        if (c->kdesc_pushed - c->kdesc_consumed >= c->kdesc_cap) return;  // 背压
+        if (!kdesc_room(c, r.h.len)) return;  // 背压(含切分后的条数)
         SliceHdr* hh = nullptr;
         void* pay = nullptr;
         if (!shm_ring_reserve(ring, &pay, &hh)) return;        // 环满 = 背压
         *hh = r.h;
         t.shm_ring = peer;
-        kdesc_push(c, (uint64_t)(uintptr_t)r.gpu_src, pay, r.h.len);   // 必成功
+        kdesc_push_split(c, (uint64_t)(uintptr_t)r.gpu_src, pay, r.h.len);   // room 已查,必成
         c->buck[up_kind(false)].take(r.h.len);
         if (r.h.hop == 0) c->posted_send += r.h.len;
         if (!c->ph_first_post_ns) c->ph_first_post_ns = now_ns();
@@ -1897,7 +1924,7 @@ static void try_self_copy(Comm* c) {
   const int me = c->cfg.rank;
   void* sdst = (uint8_t*)c->recvbuf + c->rdispls[me];
   uint64_t ssrc = (uint64_t)(uintptr_t)((const uint8_t*)c->sendbuf + c->sdispls[me]);
-  if (!kdesc_push(c, ssrc, sdst, c->scounts[me])) return;   // 环满,下轮再试
+  if (!kdesc_push_split(c, ssrc, sdst, c->scounts[me])) return;   // 环满,下轮再试
   KEntry e; e.kind = 2;
   es->kq.push_back(e);
   c->self_copy_pending = false;
