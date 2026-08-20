@@ -1106,6 +1106,28 @@ static void coll_begin(Comm* c) {
              c->coll_id, (unsigned long long)per_pair,
              (unsigned long long)(frag >> 10), cc, ratio, eff_W(c));
   }
+  // ── W 形态自适应(2026-08-21 默认规则;上面 AUTO_TIER/WAVE_FRAG 未设 eff_waves
+  // 时兜底)。输入全为已交换的可观测量(demand 矩阵列偏斜),无集群常数:
+  //   非热点(cmax < 2×cmed,与 PACE/auto-tier 同一 hot 谓词族)→ **W=1**:
+  //     4×4 实测多波在直发形态是纯税 —— 8M uniform W1=18.0ms(与 NCCL 打平)
+  //     vs W6=94.8ms(交付引擎浅队列 + 每波重规划往返,trace 归因
+  //     29425220-011011);小报文端 W 更是纯 RTT 叠加(n=8/16 两代实测)。
+  //   热点 → 保留 cfg.waves 多波:**波 = incast 流控** —— α=2 直发 W1 实测
+  //     QP 级联死(E1025 status=12),W6 存活(29425220-011534/011616)。
+  // SSP/hint 下 D 可能是上一拍矩阵(有界陈旧,D17 同哲学);矩阵全空时
+  // cmed=0 ⇒ 判非热点,与"无信息则直发"的保守方向一致。
+  if (c->cfg.sched == MOSAIC_SCHED_MOSAIC && c->eff_waves == 0) {
+    uint64_t wmax = 0;
+    std::vector<uint64_t> wcol(n, 0);
+    for (int s2 = 0; s2 < n; s2++)
+      for (int d2 = 0; d2 < n; d2++)
+        if (s2 != d2) wcol[d2] += D[(size_t)s2 * n + d2];
+    std::vector<uint64_t> ws = wcol;
+    std::sort(ws.begin(), ws.end());
+    uint64_t wmed = ws[n / 2];
+    for (uint64_t v : wcol) wmax = std::max(wmax, v);
+    if (!(wmed > 0 && wmax >= 2 * wmed)) c->eff_waves = 1;
+  }
   c->pc_k = 0;
   if (c->cfg.sched == MOSAIC_SCHED_MOSAIC && c->cfg.pair_color != 0) {
     if (c->cfg.pair_color > 0) c->pc_k = c->cfg.pair_color;
