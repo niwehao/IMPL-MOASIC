@@ -214,18 +214,13 @@ static mosaicResult_t submit_coll(Comm* c,
     //   caller_stream == 0(bench 等无流调用方)⇒ host 阻塞等收尾。
     const bool stream_ordered = caller_stream != 0 && c->cfg.use_gpu && c->zs_cap;
     if (stream_ordered) {
-      // 没有 caller 流(bench_a2a:数据本就在设备上、无待决生产者)⇒ 输入
-      // 天然就绪,不必也无法在流上打就绪标志。
-      c->input_ready = !caller_stream;
-      if (!caller_stream && c->kdesc_ctr)   // 无流调用方:输入天然就绪,直接开核内输入门
-        __atomic_store_n((uint64_t*)(c->kdesc_ctr + 160), 1ull, __ATOMIC_RELEASE);
-      const bool mk = caller_stream
-                          ? async_mark_input(c, (void*)(uintptr_t)caller_stream)
-                          : true;
-      if (mk && zerostream_arm(c)) {
+      // 本 coll 输入门复位:flagset 核在 caller 流上置位后,kdesc_input_ready
+      // 才把它翻回 true —— RWIN 句柄发布与 host 侧读 sendbuf 都以它为界。
+      c->input_ready = false;
+      if (async_mark_input(c, (void*)(uintptr_t)caller_stream) &&
+          zerostream_arm(c)) {
         c->kdesc_active = true;      // ⇒ 消费者核交付/组装
-        if (stream_ordered && gate_arm(c, (void*)(uintptr_t)caller_stream,
-                                       (uint32_t)c->coll_id))
+        if (gate_arm(c, (void*)(uintptr_t)caller_stream, (uint32_t)c->coll_id))
           c->gated = true;           // 门已排上 caller 流,Ex 提交后即返回
         MLOG_DBG("kdesc 挂载(coll=%d gated=%d)", c->coll_id, (int)c->gated);
       }
