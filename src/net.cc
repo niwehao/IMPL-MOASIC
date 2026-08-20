@@ -172,7 +172,8 @@ void shm_ring_stat(ShmRing* r, uint64_t* head, uint64_t* tail, int* inflight, in
   *inflight = r->inflight; *pending = r->pending;
 }
 
-// engine.cc 要把整段 SHM 钉页(cudaHostRegister),但那边看不到 ShmRing 的定义
+// payload 设备环(engine.cc 里 cudaMalloc / IPC 打开)的指针回填 —— engine.cc
+// 看不到 ShmRing 的定义,只能经这个 setter 交接
 void shm_ring_set_dev(ShmRing* r, void* p) { if (r) r->dev_ring = p; }
 // IPC 句柄的发布/读取(经环头这块共享内存,零额外协议)
 void shm_ring_put_ipc(ShmRing* r, const void* handle, size_t n) {
