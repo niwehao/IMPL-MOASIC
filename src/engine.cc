@@ -2056,6 +2056,13 @@ static void event_loop(Comm* c) {
   // g_ev_phase 由 dump_state(可能在别的线程)读,定位"冻结在哪个泵"
   uint64_t hb_next = 0;
   uint64_t loop_prev_ns = 0;                      // TE_LOOP:上一圈起点(仅 trace>=2)
+  // 控制面兼容档的建链:erpc::Rpc 与创建线程绑定,只能在这里做(不能在
+  // engine_start 的 app 线程)。起不来就退回 TCP —— 控制面永远有兜底,
+  // 不像数据面那样硬错。
+  if (c->ctrl_erpc && erpc_ctrl_setup(c) != 0) {
+    c->ctrl_erpc = false;
+    MLOG_WARN("E1032 控制面兼容档建链失败(未编入 eRPC 或 DPDK 端口不可用),回退 TCP");
+  }
   while (c->running.load()) {
     if (g_trace_loop) {
       uint64_t lt = now_ns();
@@ -2212,6 +2219,7 @@ static void event_loop(Comm* c) {
     seg(9); watchdog(c);
     seg(0);
   }
+  if (c->erpc) erpc_ctrl_teardown(c);   // 与 setup 同线程(Rpc 线程绑定)
 }
 
 // demand_got 的语义修正:广播计 1,自己那行不算,收齐 = n(自己 1 + 他人 n-1)
@@ -2394,16 +2402,46 @@ void engine_start(Comm* c) {
 
   // ── 跨机数据面 = RDMA verbs(TX/RX 双侧 host-bounce,见 verbs.cc 头注)。
   // 建链失败 = 硬错 fail-fast(无 TCP 回退,不静默降速)。
-  // 跨机控制面走同一 verbs 建链的独立 ctrl QP(单程 ~5µs vs TCP 30-60µs)。
+  //
+  // 跨机控制面有两档,正交互斥(见 internal.h 的 ctrl_verbs / ctrl_erpc):
+  //   RDMA 档  —— 复用同一次 verbs 建链的独立 ctrl QP,单程 ~5µs;
+  //   兼容档   —— eRPC/DPDK 用户态以太网(erpc_ctrl.cc),普通以太网卡即可,
+  //               给没有 RDMA 卡的机器兜底。
+  // 这里只**选档并置标志**;兼容档的真正建链在 event 线程(erpc::Rpc 与创建
+  // 线程绑定),见 event_loop 开头。
   {
     bool has_remote = false;
     for (int p = 0; p < c->cfg.nranks; p++)
       if (p != c->cfg.rank && !c->topo.same_host(c->cfg.rank, p)) { has_remote = true; break; }
     if (has_remote) {
+      // MOSAIC_CTRL:跨机控制面选哪一档。**非特殊情况一律用 verbs 档**。
+      //   auto(默认)—— 能力探测:verbs 建得起来就用 RDMA 档,否则退兼容档;
+      //   verbs      —— 钉死 RDMA 档,建不起来直接硬错(不静默退档);
+      //   erpc       —— 钉死兼容档,只在两种情况下用:①机器没有 RDMA 卡;
+      //                 ②要在有卡的机器上做两档对比。日常不要设它。
+      // 为什么默认偏向 verbs:两档控制面延迟其实同级(本机实测 verbs UD
+      // 3.04µs vs eRPC/DPDK 往返 6.06µs,都远优于 kernel TCP 的 p50 35µs,
+      // 见 log_raven.md 29348237-ctrl 与 local-0820-erpc-dpdk-ctrl),
+      // 但兼容档要 CAP_NET_RAW + hugepages + flow-isolated 独占队列组,
+      // 且每机只能有一个进程用(DPDK 单 primary 限制,G>1 会失败回退 TCP)。
+      // verbs 档这些代价一个都没有 —— 有卡就没有理由选兼容档。
+      const char* ctrl_mode = getenv("MOSAIC_CTRL");
+      const bool pin_verbs = ctrl_mode && strcmp(ctrl_mode, "verbs") == 0;
+      const bool pin_erpc = ctrl_mode && strcmp(ctrl_mode, "erpc") == 0;
+      if (ctrl_mode && !pin_verbs && !pin_erpc && strcmp(ctrl_mode, "auto") != 0) {
+        MLOG_ERR("E1033 MOSAIC_CTRL=%s 无效(只能是 auto/verbs/erpc)", ctrl_mode);
+        c->err = "E1033 MOSAIC_CTRL 取值无效";
+        return;
+      }
       if (verbs_setup(c, /*data_plane=*/true) == 0) {
         c->use_verbs = true;
-        c->ctrl_verbs = true;
-        MLOG_INFO("跨机数据面 = RDMA verbs(host-bounce)+ 控制面 RDMA SEND");
+        if (pin_erpc) {
+          c->ctrl_erpc = true;
+          MLOG_INFO("跨机数据面 = RDMA verbs(host-bounce)+ 控制面兼容档(eRPC/DPDK)");
+        } else {
+          c->ctrl_verbs = true;
+          MLOG_INFO("跨机数据面 = RDMA verbs(host-bounce)+ 控制面 RDMA SEND");
+        }
       } else {
         verbs_teardown(c);
         MLOG_ERR("E1028 verbs 建链失败(数据面无 TCP 回退,硬错)");

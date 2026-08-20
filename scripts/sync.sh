@@ -20,5 +20,12 @@ rsync -a --info=stats1 -e "ssh -o BatchMode=yes" --delete \
   --exclude 'mosaic-rt/results' --exclude 'fast-rt/FAST/nvidia/build' \
   "$IMPL/" "$GPU01_SSH:$IMPL/"
 
-# 远端重建 mosaic-rt(rpath 含绝对路径,必须在目标机上生成)
-SSH $GPU01_SSH "cd $REPO && make -j8 2>&1 | tail -2"
+# 远端重建 mosaic-rt(rpath 含绝对路径,必须在目标机上生成)。
+# 失败必须当场炸出来:管道 `| tail` 会吞掉 make 的退出码,远端就会静默留在
+# 上一次构建的旧二进制上,而症状会伪装成协议 bug(和忘同步是同一类坑)。
+if ! SSH $GPU01_SSH "cd $REPO && make -j8 > /tmp/mosaic_remote_make.log 2>&1"; then
+  echo "!! 远端 make 失败,尾部日志:" >&2
+  SSH $GPU01_SSH "tail -30 /tmp/mosaic_remote_make.log" >&2
+  exit 1
+fi
+SSH $GPU01_SSH "tail -2 /tmp/mosaic_remote_make.log"

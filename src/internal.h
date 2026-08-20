@@ -300,6 +300,7 @@ struct Comm {
   int epfd = -1;
   void* verbs = nullptr;           // verbs.cc 的上下文(RoCE 数据面);null = TCP
   bool use_verbs = false;
+  void* erpc = nullptr;            // erpc_ctrl.cc 的上下文(控制面兼容档);null = 未启用
 
   // ---- CUDA ----
   void* stream_d2h = nullptr;
@@ -441,8 +442,13 @@ struct Comm {
   void* kflag_fn = nullptr;         // mosaic_flagset CUfunction(input 就绪标志)
   bool input_ready = false;         // 本 coll input_ev 已确认(host-API hop0 门)
   uint64_t caller_stream = 0;       // 本 coll 的调用方流(诊断:查它是否卡住)
-  // 跨机控制面走 RDMA SEND(恒开;建链失败/池满/同机 peer 自动回退 TCP)
+  // 跨机控制面的档位。两者**互斥**,engine_start 的能力探测二选一置位:
+  //   ctrl_verbs —— RDMA 档,**默认且首选**:独立 ctrl QP 走 RDMA SEND;
+  //   ctrl_erpc  —— 兼容档,仅当机器没有 RDMA 卡:eRPC + DPDK 用户态以太网
+  //                 (代价见 erpc_ctrl.cc 头注;有卡时不要用)。
+  // 两档都在池满/超长/建链失败时自动回退 TCP;同机 peer 恒 TCP。
   bool ctrl_verbs = false;
+  bool ctrl_erpc = false;
 
   // ---- 本次 collective ----
   const void* sendbuf = nullptr;
@@ -551,6 +557,15 @@ void verbs_repost(Comm* c, int token);
 // O3:控制面报文经数据 QP 发送(小报文,注册槽池;0 = 已发,-1 = 不可用/无槽,
 // 调用方回退 TCP)。app 线程与 event 线程都会调,内部用 ctrl_mu 保护槽池。
 int  verbs_ctrl_send(Comm* c, int peer, const void* msg, uint32_t n);
+
+// erpc_ctrl.cc(控制面兼容档:eRPC over DPDK,不需要 RDMA verbs 权限之外的
+// RDMA 能力 —— 用户态以太网,给没有 RDMA 卡的机器兜底)。
+// setup 必须在 event 线程调用(erpc::Rpc 与创建线程绑定);send 返回
+// 0 = 已提交,-1 = 不可用/无槽(调用方回退 TCP);poll 由 net_poll 每圈驱动。
+int  erpc_ctrl_setup(Comm* c);
+void erpc_ctrl_teardown(Comm* c);
+int  erpc_ctrl_poll(Comm* c);
+int  erpc_ctrl_send(Comm* c, int peer, const void* msg, uint32_t n);
 
 // topo.cc
 void topo_init(Topo* t, int nranks, int G, int rank);

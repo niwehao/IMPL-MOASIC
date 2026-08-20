@@ -419,7 +419,8 @@ static void conn_flush_ctrl_locked(Comm* c, Conn* cn) {
   }
 }
 
-// 已组帧报文直接走 TCP 队列(ctrl_send 的尾段;eRPC 回退路径也用它)
+// 已组帧报文直接走 TCP 队列(ctrl_send 的兜底尾段;两档 kernel-bypass 的
+// 回退路径也直接调它 —— 报文已带 CtrlHdr,不能再组一次帧)
 int ctrl_send_tcp(Comm* c, int peer, const void* framed, uint32_t n) {
   Conn* cn = c->conn[peer];
   if (!cn) return -1;
@@ -439,12 +440,17 @@ int ctrl_send(Comm* c, int peer, CtrlType t, uint16_t aux, const void* body, uin
   h.rank = (uint8_t)c->cfg.rank; h.aux = aux;
   memcpy(m.data(), &h, sizeof(h));
   if (n) memcpy(m.data() + sizeof(h), body, n);
-  // 跨机 peer 的控制报文恒走 RDMA SEND(独立 ctrl QP,单程 ~5µs;TCP 内核栈
-  // ~30-60µs)。无槽/超长/建链失败回退 TCP —— 报文自带长度分帧,
-  // 两条通路交错到达也能正确解析(接收侧按 CtrlHdr 逐条处理,无流内状态)。
-  if (c->ctrl_verbs && !c->topo.same_host(c->cfg.rank, peer) &&
-      verbs_ctrl_send(c, peer, m.data(), (uint32_t)m.size()) == 0)
-    return 0;
+  // 跨机 peer 的控制报文走 kernel-bypass:RDMA 档 = 独立 ctrl QP 的 RDMA SEND
+  // (单程 ~5µs),兼容档 = eRPC/DPDK 可靠 RPC;两档互斥,由能力探测选定。
+  // kernel TCP 是共同兜底(~30-60µs):无槽/超长/建链失败/同机 peer 都落这里。
+  // 混用安全 —— 报文自带长度分帧,两条通路交错到达也能正确解析
+  // (接收侧按 CtrlHdr 逐条处理,无流内状态)。
+  if (!c->topo.same_host(c->cfg.rank, peer)) {
+    if (c->ctrl_verbs && verbs_ctrl_send(c, peer, m.data(), (uint32_t)m.size()) == 0)
+      return 0;
+    if (c->ctrl_erpc && erpc_ctrl_send(c, peer, m.data(), (uint32_t)m.size()) == 0)
+      return 0;
+  }
   return ctrl_send_tcp(c, peer, m.data(), (uint32_t)m.size());
 }
 
@@ -503,7 +509,8 @@ int net_blocking_exchange(Comm* c, int peer, const void* mine, void* remote, siz
 
 int net_poll(Comm* c) {
   int n = 0;
-  if (c->verbs) n += verbs_poll(c);      // 数据面或 ctrl-only(O3)都要轮询
+  if (c->verbs) n += verbs_poll(c);      // 数据面 + RDMA 档 ctrl QP
+  if (c->erpc) n += erpc_ctrl_poll(c);  // 兼容档:驱动 eRPC 事件循环(自带节流)
   epoll_event evs[64];
   int k = epoll_wait(c->epfd, evs, 64, 0);
   for (int i = 0; i < k; i++) {
