@@ -44,7 +44,7 @@
 #include <deque>
 #include <utility>
 
-#include "rpc.h"   // eRPC(Doc/Code/eRPC/src;补丁见 common/raven/patches/erpc_raven.patch)
+#include "rpc.h"   // eRPC(源码 Doc/Code/eRPC/src;补丁 third_party/erpc_raven.patch)
 
 namespace mosaic {
 

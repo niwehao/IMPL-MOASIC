@@ -58,6 +58,9 @@ $(BUILD)/test_topo: tests/test_topo.cc src/topo.cc src/util.cc | $(BUILD)
 # 链接用动态库 + 绝对路径 rpath —— DPDK 程序要 setcap cap_net_raw,而 setcap
 # 后内核进 secure-execution mode 会清空 LD_LIBRARY_PATH;绝对路径 rpath 不受
 # 影响,是这里唯一能同时满足「库找得到」和「有 cap」的链接方式。
+# eRPC 上游源码是独立 clone(不在本仓库),须先打 third_party/erpc_raven.patch ——
+# 不打补丁编出来的 eRPC 在非 root / 无 hugepage / 与内核网络共存的环境下跑不起来。
+# 重建步骤写在那个补丁文件的头部。
 ERPC_DIR    ?= $(abspath ../../Doc/Code/eRPC)
 DPDK_PREFIX ?= $(HOME)/dpdk/install-21.11
 # pkgconfig 目录名按发行版而异,现探不写死:Debian 系是 lib/<triplet>/,

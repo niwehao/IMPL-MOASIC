@@ -1,0 +1,318 @@
+# eRPC 上游补丁(应用于 Doc/Code/eRPC)。七处,分两类:
+#
+# A. 非 root / 无 hugepage 环境适配(原 Raven 集群需要,本机同样需要)
+#    rpc.cc          : 去掉 rt_assert(!getuid()) 硬性 root 要求(ERPC_ALLOW_NONROOT)
+#    huge_alloc.cc   : ERPC_NO_HUGEPAGES 时不带 SHM_HUGETLB
+#    numautils.cc    : cgroup 限核下绑核失败降级为警告,不再断言退出
+#    math_utils.h    : msb_index(0) 的 bsrl 未定义行为(gcc13 -O2 下炸 HugeAlloc)
+#    dpdk_transport.cc: EAL 参数支持 --file-prefix / --no-huge
+#
+# B. **与内核网络共存**(2026-08-20 新增,不加这两处 eRPC 根本连不上)
+#    dpdk_init.cc    : ① rte_flow_isolate(port, 1) —— 进 flow isolated 模式;
+#                      ② mq_mode 由 ETH_MQ_RX_RSS 改 ETH_MQ_RX_NONE;
+#                      ③ dev_start 后每队列装一条 "UDP dst_port -> queue" 的
+#                         rte_flow 规则(install_udp_flow_rule,现代 API,
+#                         取代上游那个用 DPDK<=20.11 废弃 API 的死文件
+#                         dpdk_flow_rules.cc)。
+#    dpdk_transport.h: install_udp_flow_rule 的声明
+#
+#    为什么必须:mlx5 是 bifurcated driver,上游默认配置会让 PMD 在 dev_start
+#    时装 catch-all 规则,把该口**全部**入向流量(SSH / ICMP / eRPC 自己的
+#    session-management UDP)都吸进 DPDK,eRPC 因此永远完不成握手。
+#    详见 File/log.md 坑 #53。
+#
+# ── 怎么用 ──────────────────────────────────────────────────────────────────
+# eRPC 上游源码不在本仓库里(它是 Doc/Code/eRPC 下的独立 clone,
+# github.com/erpc-io/eRPC @ de83dab)。要重建兼容档的构建环境:
+#
+#   git clone https://github.com/erpc-io/eRPC <repo>/Doc/Code/eRPC
+#   cd <repo>/Doc/Code/eRPC && git checkout de83dab
+#   git apply <repo>/Impl/mosaic-rt/third_party/erpc_raven.patch
+#
+# 之后 mosaic-rt 的 Makefile 自动档会探到源码并编入(还需 DPDK 21.11,
+# 见 Result/local-0820-erpc-dpdk-ctrl/build_dpdk.sh)。三条件缺任一 ⇒ ERPC=0
+# ⇒ 编 stub ⇒ 能力探测选不中兼容档,一切照常走 verbs,不报错。
+#
+# 改了 eRPC 源码后重新生成本文件(它是那些改动的唯一真源):
+#   cd <repo>/Doc/Code/eRPC && git diff > <repo>/Impl/mosaic-rt/third_party/erpc_raven.patch
+#   (记得把本说明头重新粘回文件开头 —— git diff 不会带上它)
+diff --git a/src/rpc_impl/rpc.cc b/src/rpc_impl/rpc.cc
+index 2976946..a390b10 100644
+--- a/src/rpc_impl/rpc.cc
++++ b/src/rpc_impl/rpc.cc
+@@ -26,7 +26,11 @@ Rpc<TTr>::Rpc(Nexus *nexus, void *context, uint8_t rpc_id,
+       rpc_pkt_loss_scan_cycles_(rpc_rto_cycles_ / 10),
+       req_func_arr_(nexus->req_func_arr_) {
+ #ifndef _WIN32
+-  rt_assert(!getuid(), "You need to be root to use eRPC");
++  // Raven patch: non-root allowed when ERPC_ALLOW_NONROOT is set (mlx5 PMD is
++  // a bifurcated driver usable via /dev/infiniband without root).
++  if (getuid() != 0 && getenv("ERPC_ALLOW_NONROOT") == nullptr) {
++    rt_assert(false, "You need to be root to use eRPC (or set ERPC_ALLOW_NONROOT=1)");
++  }
+ #endif
+   rt_assert(rpc_id != kInvalidRpcId, "Invalid Rpc ID");
+   rt_assert(!nexus->rpc_id_exists(rpc_id), "Rpc ID already exists");
+diff --git a/src/transport_impl/dpdk/dpdk_init.cc b/src/transport_impl/dpdk/dpdk_init.cc
+index ba168f8..479f5a8 100644
+--- a/src/transport_impl/dpdk/dpdk_init.cc
++++ b/src/transport_impl/dpdk/dpdk_init.cc
+@@ -6,6 +6,7 @@
+ 
+ #ifdef ERPC_DPDK
+ 
++#include <rte_flow.h>
+ #include "dpdk_externs.h"
+ #include "dpdk_transport.h"
+ 
+@@ -51,16 +52,15 @@ void DpdkTransport::setup_phy_port(uint16_t phy_port, size_t numa_node,
+   rte_eth_conf eth_conf;
+   memset(&eth_conf, 0, sizeof(eth_conf));
+ 
+-  if (!kIsWindows) {
+-    eth_conf.rxmode.mq_mode = ETH_MQ_RX_RSS;
+-    eth_conf.lpbk_mode = 1;
+-    eth_conf.rx_adv_conf.rss_conf.rss_key =
+-        const_cast<uint8_t *>(kDefaultRssKey);
+-    eth_conf.rx_adv_conf.rss_conf.rss_key_len = 40;
+-    eth_conf.rx_adv_conf.rss_conf.rss_hf = ETH_RSS_UDP;
+-  } else {
+-    eth_conf.rxmode.mq_mode = ETH_MQ_RX_NONE;
+-  }
++  // Raven patch: no catch-all RSS. On a bifurcated driver (mlx5), configuring
++  // RSS makes the PMD install a catch-all steering rule at dev_start, which
++  // hijacks *all* ingress traffic on the port -- including SSH, ICMP and eRPC's
++  // own session-management UDP packets (SM uses a normal kernel socket, not
++  // DPDK). eRPC then cannot complete its own handshake. Instead we leave the
++  // port in MQ_RX_NONE and install one explicit flow rule per queue below,
++  // matching only that queue's datapath UDP port; everything else stays with
++  // the kernel. See install_udp_flow_rule().
++  eth_conf.rxmode.mq_mode = ETH_MQ_RX_NONE;
+ 
+   eth_conf.txmode.mq_mode = ETH_MQ_TX_NONE;
+   eth_conf.txmode.offloads = kOffloads;
+@@ -69,6 +69,22 @@ void DpdkTransport::setup_phy_port(uint16_t phy_port, size_t numa_node,
+                                   kMaxQueuesPerPort, &eth_conf);
+   rt_assert(ret == 0, "Ethdev configuration error: ", strerror(-1 * ret));
+ 
++  // Raven patch: flow isolated mode. Without it, mlx5 installs its own default
++  // steering rules at dev_start (unicast-MAC -> DPDK RX queues), which hijack
++  // every packet addressed to this port -- SSH, ICMP, and eRPC's own
++  // session-management UDP among them. In isolated mode the port receives only
++  // what the application's own flow rules match, and all other traffic stays
++  // with the kernel driver. This is exactly the bifurcated-driver coexistence
++  // mode, and it must be requested after dev_configure but before dev_start.
++  {
++    rte_flow_error iso_err;
++    memset(&iso_err, 0, sizeof(iso_err));
++    ret = rte_flow_isolate(phy_port, 1, &iso_err);
++    rt_assert(ret == 0,
++              std::string("Failed to enable flow isolated mode: ") +
++                  (iso_err.message == nullptr ? "?" : iso_err.message));
++  }
++
+   // Set up all RX and TX queues and start the device. This can't be done later
+   // on a per-thread basis since we must start the device to use any queue.
+   // Once the device is started, more queues cannot be added without stopping
+@@ -100,6 +116,63 @@ void DpdkTransport::setup_phy_port(uint16_t phy_port, size_t numa_node,
+   }
+ 
+   rte_eth_dev_start(phy_port);
++
++  // Raven patch: steer only our own datapath UDP ports into DPDK queues.
++  // Must be after dev_start (mlx5 rejects flow creation on a stopped port).
++  for (size_t i = 0; i < kMaxQueuesPerPort; i++) {
++    install_udp_flow_rule(phy_port, i,
++                          static_cast<uint16_t>(kBaseEthUDPPort + i));
++  }
++}
++
++// Raven patch: modern rte_flow replacement for the (dead, DPDK<=20.11-only)
++// helpers in dpdk_flow_rules.cc. Matches ETH/IPv4/UDP with an exact destination
++// port and directs those packets to \p qp_id. Unmatched traffic is left to the
++// kernel, which is what makes DPDK coexist with the kernel networking stack on
++// the same bifurcated (mlx5) port.
++void DpdkTransport::install_udp_flow_rule(uint16_t phy_port, size_t qp_id,
++                                          uint16_t udp_dst_port) {
++  rte_flow_attr attr;
++  memset(&attr, 0, sizeof(attr));
++  attr.ingress = 1;
++
++  rte_flow_item_udp udp_spec, udp_mask;
++  memset(&udp_spec, 0, sizeof(udp_spec));
++  memset(&udp_mask, 0, sizeof(udp_mask));
++  udp_spec.hdr.dst_port = rte_cpu_to_be_16(udp_dst_port);
++  udp_mask.hdr.dst_port = 0xffff;
++
++  rte_flow_item pattern[4];
++  memset(pattern, 0, sizeof(pattern));
++  pattern[0].type = RTE_FLOW_ITEM_TYPE_ETH;
++  pattern[1].type = RTE_FLOW_ITEM_TYPE_IPV4;
++  pattern[2].type = RTE_FLOW_ITEM_TYPE_UDP;
++  pattern[2].spec = &udp_spec;
++  pattern[2].mask = &udp_mask;
++  pattern[3].type = RTE_FLOW_ITEM_TYPE_END;
++
++  rte_flow_action_queue queue_action;
++  memset(&queue_action, 0, sizeof(queue_action));
++  queue_action.index = static_cast<uint16_t>(qp_id);
++
++  rte_flow_action actions[2];
++  memset(actions, 0, sizeof(actions));
++  actions[0].type = RTE_FLOW_ACTION_TYPE_QUEUE;
++  actions[0].conf = &queue_action;
++  actions[1].type = RTE_FLOW_ACTION_TYPE_END;
++
++  rte_flow_error error;
++  memset(&error, 0, sizeof(error));
++  if (rte_flow_validate(phy_port, &attr, pattern, actions, &error) != 0) {
++    rt_assert(false, std::string("Flow rule validation failed for UDP port ") +
++                         std::to_string(udp_dst_port) + ": " +
++                         (error.message == nullptr ? "?" : error.message));
++  }
++  rte_flow *flow = rte_flow_create(phy_port, &attr, pattern, actions, &error);
++  rt_assert(flow != nullptr,
++            std::string("Flow rule creation failed for UDP port ") +
++                std::to_string(udp_dst_port) + ": " +
++                (error.message == nullptr ? "?" : error.message));
+ }
+ 
+ }  // namespace erpc
+diff --git a/src/transport_impl/dpdk/dpdk_transport.cc b/src/transport_impl/dpdk/dpdk_transport.cc
+index 755648e..5f4a3ff 100644
+--- a/src/transport_impl/dpdk/dpdk_transport.cc
++++ b/src/transport_impl/dpdk/dpdk_transport.cc
+@@ -1,9 +1,12 @@
+ #ifdef ERPC_DPDK
+ 
+ #include "dpdk_transport.h"
++#include <cstdlib>
+ #include <iomanip>
+ #include <set>
+ #include <stdexcept>
++#include <string>
++#include <vector>
+ #include "dpdk_externs.h"
+ #include "util/huge_alloc.h"
+ #include "util/numautils.h"
+@@ -42,18 +45,32 @@ DpdkTransport::DpdkTransport(uint16_t sm_udp_port, uint8_t rpc_id,
+       ERPC_INFO("DPDK transport for Rpc %u initializing DPDK EAL.\n", rpc_id);
+ 
+       // clang-format off
+-      const char *rte_argv[] = {
++      // Raven patch: extra EAL args via env —— ERPC_DPDK_FILE_PREFIX(多个
++      // 独立 primary 进程共节点时隔离 runtime dir)、ERPC_DPDK_NO_HUGE=1
++      // (--no-huge --in-memory,无 hugepages 的集群;mlx5 走 IOVA=VA 可用)。
++      std::vector<const char *> rte_args = {
+           "-c",            "0x0",
+           "-n",            "6",  // Memory channels
+-          "-m",            "1024", // Max memory in megabytes
+           "--proc-type",   "auto",
+-          "--log-level",   (ERPC_LOG_LEVEL >= ERPC_LOG_LEVEL_INFO) ? "8" : "0",
+-          nullptr};
++          "--log-level",   (ERPC_LOG_LEVEL >= ERPC_LOG_LEVEL_INFO) ? "8" : "0"};
++      static std::string file_prefix;  // 必须活过 rte_eal_init
++      if (const char *fp = getenv("ERPC_DPDK_FILE_PREFIX")) {
++        file_prefix = fp;
++        rte_args.push_back("--file-prefix");
++        rte_args.push_back(file_prefix.c_str());
++      }
++      if (getenv("ERPC_DPDK_NO_HUGE") != nullptr) {
++        // 21.11:--no-huge 强制 legacy-mem,与 --in-memory 冲突,只留 no-huge
++        rte_args.push_back("--no-huge");
++      } else {
++        rte_args.push_back("-m");
++        rte_args.push_back("1024");  // Max memory in megabytes
++      }
++      rte_args.push_back(nullptr);
+       // clang-format on
+ 
+-      const int rte_argc =
+-          static_cast<int>(sizeof(rte_argv) / sizeof(rte_argv[0])) - 1;
+-      int ret = rte_eal_init(rte_argc, const_cast<char **>(rte_argv));
++      const int rte_argc = static_cast<int>(rte_args.size()) - 1;
++      int ret = rte_eal_init(rte_argc, const_cast<char **>(rte_args.data()));
+       rt_assert(ret >= 0, "Failed to initialize DPDK");
+ 
+       // rte_eal_init() sets process core affinity to only core #0, undo this
+diff --git a/src/transport_impl/dpdk/dpdk_transport.h b/src/transport_impl/dpdk/dpdk_transport.h
+index 8abb212..aa47d69 100644
+--- a/src/transport_impl/dpdk/dpdk_transport.h
++++ b/src/transport_impl/dpdk/dpdk_transport.h
+@@ -298,6 +298,13 @@ class DpdkTransport : public Transport {
+   static void install_flow_rule(size_t phy_port, size_t qp_id,
+                                 uint32_t ipv4_addr, uint16_t udp_port);
+ 
++  /// Raven patch: install an exact-match "UDP dst port -> queue" steering rule
++  /// (modern rte_flow API). Only these packets go to DPDK; everything else on
++  /// the port stays with the kernel stack. Called once per queue after
++  /// rte_eth_dev_start().
++  static void install_udp_flow_rule(uint16_t phy_port, size_t qp_id,
++                                    uint16_t udp_dst_port);
++
+   /// Initialize the memory registration and deregistration functions
+   void init_mem_reg_funcs();
+ 
+diff --git a/src/util/huge_alloc.cc b/src/util/huge_alloc.cc
+index 0439c81..6a0d78c 100644
+--- a/src/util/huge_alloc.cc
++++ b/src/util/huge_alloc.cc
+@@ -84,7 +84,12 @@ Buffer HugeAlloc::alloc_raw(size_t size, DoRegister do_register) {
+     shm_key = std::abs(shm_key);
+ 
+     // Try to get an SHM region
+-    shm_id = shmget(shm_key, size, IPC_CREAT | IPC_EXCL | 0666 | SHM_HUGETLB);
++    // Raven patch: ERPC_NO_HUGEPAGES=1 drops SHM_HUGETLB (clusters without
++    // configured hugepages / hugetlb_shm_group; TLB-miss cost accepted).
++    static const bool no_huge = getenv("ERPC_NO_HUGEPAGES") != nullptr;
++    int shm_flags = IPC_CREAT | IPC_EXCL | 0666;
++    if (!no_huge) shm_flags |= SHM_HUGETLB;
++    shm_id = shmget(shm_key, size, shm_flags);
+ 
+     if (shm_id == -1) {
+       switch (errno) {
+@@ -154,6 +159,12 @@ Buffer HugeAlloc::alloc_raw(size_t size, DoRegister do_register) {
+ }
+ 
+ Buffer HugeAlloc::alloc(size_t size) {
++  // Raven patch:越界尺寸显式报错(定位调用方),不再裸 assert
++  if (size > k_max_class_size) {
++    fprintf(stderr, "eRPC HugeAlloc::alloc size %zu > max class %zu\n", size,
++            k_max_class_size);
++    fflush(stderr);
++  }
+   assert(size <= k_max_class_size);
+ 
+   size_t size_class = get_class(size);
+diff --git a/src/util/math_utils.h b/src/util/math_utils.h
+index fc90358..5dbb412 100644
+--- a/src/util/math_utils.h
++++ b/src/util/math_utils.h
+@@ -34,6 +34,10 @@ static inline size_t lsb_index(int x) {
+ /// bit is 1. (x = 0 returns 0, x = 1 returns 1.)
+ static inline size_t msb_index(int x) {
+   assert(x < INT32_MAX / 2);
++  // Raven patch:bsrl(0) 的目的寄存器未定义(上游潜伏 bug,gcc13 -O2 下
++  // 返回垃圾 → HugeAlloc::alloc(≤64B) 的 size_class 断言炸)。文档语义
++  // x=0 → 0,显式补上。
++  if (x == 0) return 0;
+   int index;
+   asm("bsrl %1, %0" : "=r"(index) : "r"(x << 1));
+   return static_cast<size_t>(index);
+diff --git a/src/util/numautils.cc b/src/util/numautils.cc
+index c4abbc9..9faa447 100644
+--- a/src/util/numautils.cc
++++ b/src/util/numautils.cc
+@@ -54,7 +54,11 @@ void bind_to_core(std::thread &thread, size_t numa_node,
+   CPU_SET(global_index, &cpuset);
+   int rc = pthread_setaffinity_np(thread.native_handle(), sizeof(cpu_set_t),
+                                   &cpuset);
+-  rt_assert(rc == 0, "Error setting thread affinity");
++  // Raven patch: cgroup(SLURM)限核下目标核可能不在允许集 —— 降级为警告,
++  // 不再断言退出(延迟基准可接受未绑核)。
++  if (rc != 0)
++    ERPC_ERROR("eRPC: setting thread affinity to core %zu failed (cgroup?), continuing unpinned\n",
++               global_index);
+ }
+ 
+ void clear_affinity_for_process() {
