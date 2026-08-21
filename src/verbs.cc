@@ -465,6 +465,7 @@ int verbs_post_slice(Comm* c, int peer, const SliceHdr& h, int stage_slot) {
     MLOG_ERR("E1024 post_send(r%d) 失败: %s", peer, strerror(errno));
     return -1;
   }
+  c->node_inflight[c->topo.host(peer)] += h.len;   // 每目的节点在途账(完成/失败时退)
   return 0;
 }
 
@@ -512,6 +513,17 @@ int verbs_poll(Comm* c) {
   for (int i = 0; i < n; i++) {
     if (wc[i].status != IBV_WC_SUCCESS) {
       MLOG_ERR("E1025 send wc 失败 status=%d(%s)", wc[i].status, ibv_wc_status_str(wc[i].status));
+      if (!(wc[i].wr_id & (WRID_CTRL | WRID_RX | WRID_CRX))) {
+        // 数据 WR 失败:在途账必须退(否则 node_inflight 永久占位 = 死锁),
+        // staging 槽一并回收(此前是泄漏)
+        int slot = (int)wc[i].wr_id;
+        SliceHdr h;
+        memcpy(&h, c->stage_hdr_pool + (size_t)slot * HDR_STRIDE, sizeof(h));
+        int pn = c->topo.host(h.path[h.hop + 1]);
+        if (c->node_inflight[pn] >= h.len) c->node_inflight[pn] -= h.len; else c->node_inflight[pn] = 0;
+        stage_release(c, slot);
+        if (c->nic_tx_outstanding > 0) c->nic_tx_outstanding--;
+      }
       continue;
     }
     if (wc[i].wr_id & WRID_CTRL) {        // 控制报文完成:只还槽,不进检测器/账
@@ -525,6 +537,10 @@ int verbs_poll(Comm* c) {
       SliceHdr h;
       memcpy(&h, c->stage_hdr_pool + (size_t)slot * HDR_STRIDE, sizeof(h));
       if (c->nic_tx_outstanding > 0) c->nic_tx_outstanding--;
+      {   // 每目的节点在途账:send 完成 = 对端已 ACK,离开在途
+        int pn = c->topo.host(h.path[h.hop + 1]);
+        if (c->node_inflight[pn] >= h.len) c->node_inflight[pn] -= h.len; else c->node_inflight[pn] = 0;
+      }
       det_feed(c, 0, h.len);
       MTRACE(TE_TXDONE, ((uint32_t)h.src << 16) | h.dst, h.off,
              ((uint64_t)h.len << 8) | h.hop);     // 发送完成(含对端 ack)

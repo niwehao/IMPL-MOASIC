@@ -1676,13 +1676,39 @@ void on_slice_arrived(Comm* c, const SliceHdr& h, void* payload, int shm_ring, i
 }
 
 // ─────────────────────────────────────────────────────────── 事件循环各阶段
+// MOSAIC_NODE_INFLIGHT_MB:发送端对**每个目的节点**的在途字节上限(容量类,
+// 不改数据面走法)。默认 24MB:悬崖标定 —— α1 W2(每波对热节点 ~均摊 24MB+/
+// sender)多次存活、更高聚合压强触发 E1025 级联死;调大 = 更满的管线但更接近
+// RNR 风暴,调小 = 更强的 incast 保护但可能欠吞吐;在 Raven 4×4 α2 上标定。
+static uint64_t node_inflight_cap() {
+  static uint64_t v = 0;
+  if (!v) {
+    const char* e = getenv("MOSAIC_NODE_INFLIGHT_MB");
+    long mb = e && *e ? atol(e) : 24;
+    if (mb < 1) mb = 1;
+    v = (uint64_t)mb << 20;
+  }
+  return v;
+}
 static void pump_one_queue(Comm* c, std::deque<ReadySlice>& q, bool via_nic) {
   auto* es = ES(c);
   int budget = 32;
+  size_t rot = 0;                 // 本轮已轮转的被限流片(防空转)
   while (!q.empty() && budget-- > 0) {
     ReadySlice& r = q.front();
     const int me = c->cfg.rank;
     const int peer = r.h.path[r.h.hop + 1];
+    // 每目的节点在途上限:超限的片转到队尾让别的节点先走(热节点限流不
+    // HOL 冷节点;发送序已证不影响 makespan,hot-first A/B 全噪声)
+    if (via_nic &&
+        c->node_inflight[c->topo.host(peer)] + r.h.len > node_inflight_cap()) {
+      if (++rot > q.size()) return;          // 全队都被限 = 等完成事件
+      ReadySlice cp = r;
+      q.pop_front();
+      q.push_back(cp);
+      budget++;
+      continue;
+    }
     const bool via_spine = via_nic && (c->topo.rail(me) != c->topo.rail(peer));
 
     InflightTx t;

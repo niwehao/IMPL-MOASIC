@@ -348,6 +348,12 @@ struct Comm {
   std::vector<double> nominal_Bps; // 每资源额定(检测器恢复与 telemetry 覆盖的基线)
   std::vector<uint8_t> peer_det;   // [rank] 最新 det_state(quorum 全域计数用)
   int nic_tx_outstanding = 0;      // 在途 NIC 发送数(检测器 busy 判定)
+  // 每目的**节点**在途字节(发送端流控,2026-08-21):RC send 完成 = 对端已
+  // ACK,是精确的在途信号。动机:QP 级联死(E1025)= RNR 风暴,静态"每波
+  // 体积"不是死亡预测量(29429499 α2 W5=196MB/波死 vs α1 W2=293MB/波稳),
+  // 只有源头限流能移除悬崖 —— 悬崖消失后 W 在线探索才全域安全。
+  uint64_t node_inflight[MAX_RANKS] = {0};   // 按 host id 索引
+
   int pc_k = 0;                    // 本次 collective 生效的 pair_color K
   // ── W 在线自适应(2026-08-21 设计 §1):按 demand 形状签名记忆各 W 档的
   // completion EMA,向下探测、劣化回退。全部本地观测(G.2 合规);
