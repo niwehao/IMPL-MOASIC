@@ -1,0 +1,111 @@
+TE-CCL 生成 schedule 需要两类输入：topology 和 workflow/collective。我们现在的 wrapper 入口就是：
+
+  tools/teccl_generate_schedule.py \
+    --topo topo.json \
+    --workflow workflow.json \
+    --output schedule.sched
+
+  1. Topology 信息
+
+  当前 regular 图需要这些字段：
+
+  {
+    "name": "regular",
+    "node_count": 16,
+    "degree": 4,
+    "link_rate_gbps": 100,
+    "alpha": 0.0
+  }
+
+  含义：
+
+  - name: 拓扑类型，目前 regular 图用 "regular"
+  - node_count: 节点数，例如 16
+  - degree: regular graph 每个节点的度，例如 4
+  - link_rate_gbps: 链路带宽
+  - alpha: 链路固定延迟/启动开销，传给 TE-CCL 的 link alpha
+
+  wrapper 会根据 node_count + degree 生成 edge list，并写给 TE-CCL 的 RegularGraph topology。
+
+  2. Workflow / collective 信息
+
+  例如 AllGather：
+
+  {
+    "collective": "allgather",
+    "num_chunks": 1,
+    "chunk_size_bytes": 1048576,
+    "num_epochs": 8,
+    "time_limit_hours": 0.05,
+    "solution_method": 2,
+    "objective_type": 3,
+    "gurobi_output_flag": 0
+  }
+
+  字段含义：
+
+  - collective: "allgather" 或 "alltoall"
+  - num_chunks: 每个源数据拆成多少 chunk
+  - chunk_size_bytes: 每个 chunk 大小
+  - num_epochs: TE-CCL 最多允许多少 epoch
+  - time_limit_hours: Gurobi 求解时间限制
+  - solution_method: TE-CCL 求解方式，2 是 iterative
+  - objective_type: TE-CCL objective，当前用 3
+  - gurobi_output_flag: 是否打印 Gurobi 日志，0 表示安静
+
+  "solution_method": 2
+  意思是：在你给定的 num_epochs 上限内，用迭代/二分方式找更小的可行 epoch。
+
+
+
+  3. 内部生成给 TE-CCL 的信息
+
+  wrapper 会把上面两个文件转换成 TE-CCL input，包括：
+
+  {
+    "TopologyParams": {
+      "name": "RegularGraph",
+      "chunk_size": 0.001048576,
+      "graph_file": "...graph.json",
+      "link_rate_gbps": 100,
+      "alpha": [0.0, 0.0]
+    },
+    "GurobiParams": {
+      "time_limit": 0.05,
+      "output_flag": 0
+    },
+    "InstanceParams": {
+      "collective": 1,
+      "num_chunks": 1,
+      "num_epochs": 8,
+      "solution_method": 2,
+      "schedule_output_file": "..."
+    }
+  }
+
+  其中 collective 会被转换成 TE-CCL 内部枚举：
+
+  allgather -> 1
+  alltoall  -> 2
+
+  4. Cache key 使用的信息
+
+  为了避免重复求解，cache key 由这些内容决定：
+
+  topo.json + workflow.json + 生成出的 regular graph + schedule 格式版本
+
+  所以只要 topology/workflow 没变，第二次运行会直接复用已有 schedule，不重新跑 Gurobi。
+
+对于全局
+不同节点不关心对方执行到哪个epoch
+
+对于单个节点内
+    1. epoch 是逻辑阶段，不是全局时钟。
+  2. 同一 epoch 内 step 可以并发。
+  3. 同一 epoch 内暂时不 ready 的 step 等待。
+  4. 等待不是空等固定时间，而是等 htsim 中其他传输真实完成。
+  5. 只有出现 deadlock 才报错：pending step 不 ready，且没有任何正在飞行的 step 能让它变 ready。
+  6. 当前 epoch 全部 step 完成后，再进入下一个 epoch。
+
+
+workload:

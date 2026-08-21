@@ -1,0 +1,4 @@
+probe_incast1_mosaicW24_buf64 validation FAILED rounds 1 completion_us 6709.01 queue_drops 487 
+probe_incast1_mosaicW12_buf128 validation FAILED rounds 1 completion_us 13377.9 queue_drops 1079 
+probe_incast1_mosaicW12_buf256 validation PASSED rounds 1 completion_us 161346 queue_drops 0 
+probe_incast1_mosaicW24_buf128 validation PASSED rounds 1 completion_us 161467 queue_drops 0 

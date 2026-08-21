@@ -1,0 +1,15 @@
+scheme,n,workload,synth_time,unit,status,time_us,note
+mosaic,32,zipf1.0,20.3,us,OK,20.3,median of 3; prior construction (ctor+waterfilling)
+mosaic,64,zipf1.0,72.3,us,OK,72.3,median of 3
+mosaic,128,zipf1.0,194.9,us,OK,194.9,median of 3
+mosaic,256,zipf1.0,815.5,us,OK,815.5,median of 3
+fast,32,zipf1.0,636,us,OK,636,median of 3; full plan (balance+Birkhoff+dispatch)
+fast,64,zipf1.0,2983,us,OK,2983,median of 3; 49 stages
+fast,128,zipf1.0,12533,us,OK,12533,median of 3; 225 stages
+fast,256,zipf1.0,108807,us,OK,108807,median of 3; 961 stages / 393671 steps
+teccl,32,uniform2mb,147,s,reused,147000000,dgx_rail 2MB solve (previously measured)
+teccl,64,uniform2mb,>1800,s,TIMEOUT,,rc=124 at 30min wall; no schedule produced
+taccl,32,uniform2mb,840,s,reused,840000000,routing 4.4s + scheduler 600s cap (gap 1.86%)
+taccl,64,uniform2mb,,s,SKIPPED,,sketch requires manual redesign for 8 hosts; n=32 already 840s
+syccl,32,uniform2mb,40.5,s,reused,40500000,previously measured
+syccl,64,uniform2mb,262,s,OK,262000000,solved (predicted 5383us)

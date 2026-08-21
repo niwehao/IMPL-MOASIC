@@ -1,0 +1,14 @@
+label,nodes,nv,taper,scheduler,completion_us,p99_us,status
+W1,32,360,180,mosaic_schedule,8816.3,7063.43,PASSED
+W2,32,360,180,mosaic_schedule,7990.77,7152.5,PASSED
+W4,32,360,180,mosaic_schedule,8116.35,5987,PASSED
+W6,32,360,180,mosaic_schedule,8565.57,6012.74,PASSED
+W8,32,360,180,mosaic_schedule,8665.53,6154.85,PASSED
+W12,32,360,180,mosaic_schedule,8298.21,6144.97,PASSED
+G0.3,32,360,180,mosaic_schedule,8147.96,5824.56,PASSED
+G0.5,32,360,180,mosaic_schedule,8094.51,5915.58,PASSED
+G0.7,32,360,180,mosaic_schedule,8565.57,6012.74,PASSED
+G0.9,32,360,180,mosaic_schedule,8511.1,6028.56,PASSED
+T0.5,32,360,180,mosaic_schedule,8119.39,5851.44,PASSED
+T0.75,32,360,180,mosaic_schedule,8565.57,6012.74,PASSED
+T0.9,32,360,180,mosaic_schedule,8375.13,6310.61,PASSED

@@ -1,0 +1,43 @@
+# ==== 构建中间产物 ====
+*.o
+*.a
+*.so
+__pycache__/
+*.pyc
+*.egg-info/
+csg-htsim/sim/tests/htsim_*
+csg-htsim/sim/datacenter/htsim_*
+# 冻结二进制(32 组方法论:每个 commit 一份 htsim 副本,15MB/个,可从 commit 重建)
+csg-htsim/cache/**/htsim_*
+
+# ==== 求解器/模拟器中间转储(可再生,单文件可达 237MB)====
+model_*.lp
+model_*.ilp
+model.ilp
+smart_regular.dat
+logout.dat
+send_dict_*.npy
+cs_ts_*.pkl
+gurobi.log
+# TE-CCL 生成器的内容寻址缓存(命名 .sched 结果已在 examples/cache 保留)
+csg-htsim/cache/teccl_schedules/
+
+# ==== 杂项 ====
+.DS_Store
+*~
+*.bak
+*.tmp
+
+# ==== TACCL 求解工作转储(CWD 相对,巨大;solution json + .sched 已入库) ====
+csg-htsim/cache/**/model_sccl_*.lp
+csg-htsim/cache/**/model_sccl_*.ilp
+csg-htsim/cache/**/cs_ts_cr_tr_*.pkl
+csg-htsim/cache/**/send_dict_*.npy
+# htsim Logfile 空壳(每次运行重生成)
+smart_regular.dat
+
+# ==== 第三方仓库(保留其自有 .git 克隆,未并入本仓) ====
+DeepEP/
+csg-htsim/cache/optical/tmp/
+csg-htsim/cache/optical/tmp2/
+csg-htsim/cache/optical/tmp37/

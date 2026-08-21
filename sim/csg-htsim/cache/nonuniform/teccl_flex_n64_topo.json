@@ -1,0 +1,7 @@
+{
+  "name": "dgx_rail",
+  "node_count": 64,
+  "hosts": 8,
+  "gpus_per_host": 8,
+  "taper_gbps": 180.0
+}

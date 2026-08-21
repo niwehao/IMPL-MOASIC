@@ -1,0 +1,10 @@
+{
+  "collective": "allgather",
+  "num_chunks": 1,
+  "chunk_size_bytes": 1048576,
+  "num_epochs": 8,
+  "time_limit_hours": 0.05,
+  "solution_method": 2,
+  "objective_type": 3,
+  "gurobi_output_flag": 0
+}

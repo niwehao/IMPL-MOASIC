@@ -1,0 +1,121 @@
+demand,R_us,scheme,detail,completion_us,status,vs_barrier35,vs_pr39,cut_ok
+_meta,0,frozen_binary_md5,a7fea6438b0795798fbc5f8d6a82138a,0,-,,,
+_meta,0,opponents,frozen archives 35(barrier best)+39(PR best),0,-,,,
+uniform,10,lower_bound,max_line_cut,650.1,-,,,
+uniform,10,barrier_best_35,archive,975.617,ARCHIVE,,,
+uniform,10,pr_best_39,archive,960.617,ARCHIVE,,,
+uniform,10,mosaic_ow,ring=nn useB=1 portR=4512 reopen=3520 forced=0,2234.23,PASSED,0.437,0.430,OK
+uniform,10,mosaic_ow_static,ring=nn useB=1 portR=4512 reopen=3520 forced=0,2202.89,PASSED,0.443,0.436,OK
+uniform,100,lower_bound,max_line_cut,650.1,-,,,
+uniform,100,barrier_best_35,archive,2695.65,ARCHIVE,,,
+uniform,100,pr_best_39,archive,2674.0,ARCHIVE,,,
+uniform,100,mosaic_ow,ring=nn useB=1 portR=64 reopen=0 forced=0,5653.11,PASSED,0.477,0.473,OK
+uniform,100,mosaic_ow_static,ring=nn useB=1 portR=64 reopen=0 forced=0,5653.11,PASSED,0.477,0.473,OK
+uniform,1000,lower_bound,max_line_cut,650.1,-,,,
+uniform,1000,barrier_best_35,archive,7496.71,ARCHIVE,,,
+uniform,1000,pr_best_39,archive,7482.0,ARCHIVE,,,
+uniform,1000,mosaic_ow,ring=nn useB=1 portR=64 reopen=0 forced=0,7453.11,PASSED,1.006,1.004,OK
+uniform,1000,mosaic_ow_static,ring=nn useB=1 portR=64 reopen=0 forced=0,7453.11,PASSED,1.006,1.004,OK
+uniform,10000,lower_bound,max_line_cut,650.1,-,,,
+uniform,10000,barrier_best_35,archive,20649.9,ARCHIVE,,,
+uniform,10000,pr_best_39,archive,20635.0,ARCHIVE,,,
+uniform,10000,mosaic_ow,ring=nn useB=0 portR=32 reopen=0 forced=0,20522.2,PASSED,1.006,1.005,OK
+uniform,10000,mosaic_ow_static,ring=nn useB=0 portR=32 reopen=0 forced=0,20522.2,PASSED,1.006,1.005,OK
+zipf10,10,lower_bound,max_line_cut,5097.7,-,,,
+zipf10,10,barrier_best_35,archive,5423.16,ARCHIVE,,,
+zipf10,10,pr_best_39,archive,5407.0,ARCHIVE,,,
+zipf10,10,mosaic_ow,ring=ident useB=1 portR=4503 reopen=3540 forced=0,9213.38,PASSED,0.589,0.587,OK
+zipf10,10,mosaic_ow_static,ring=ident useB=1 portR=4542 reopen=3579 forced=0,9153.29,PASSED,0.592,0.591,OK
+zipf10,100,lower_bound,max_line_cut,5097.7,-,,,
+zipf10,100,barrier_best_35,archive,7895.28,ARCHIVE,,,
+zipf10,100,pr_best_39,archive,6620.1,ARCHIVE,,,
+zipf10,100,mosaic_ow,ring=ident useB=1 portR=64 reopen=0 forced=0,8475.46,PASSED,0.932,0.781,OK
+zipf10,100,mosaic_ow_static,ring=ident useB=1 portR=64 reopen=0 forced=0,8475.46,PASSED,0.932,0.781,OK
+zipf10,1000,lower_bound,max_line_cut,5097.7,-,,,
+zipf10,1000,barrier_best_35,archive,13272.3,ARCHIVE,,,
+zipf10,1000,pr_best_39,archive,10220.1,ARCHIVE,,,
+zipf10,1000,mosaic_ow,ring=ident useB=1 portR=64 reopen=0 forced=0,10275.5,PASSED,1.292,0.995,OK
+zipf10,1000,mosaic_ow_static,ring=ident useB=1 portR=64 reopen=0 forced=0,10275.5,PASSED,1.292,0.995,OK
+zipf10,10000,lower_bound,max_line_cut,5097.7,-,,,
+zipf10,10000,barrier_best_35,archive,22272.3,ARCHIVE,,,
+zipf10,10000,pr_best_39,archive,22272.3,ARCHIVE,,,
+zipf10,10000,mosaic_ow,ring=ident useB=0 portR=32 reopen=0 forced=0,22676.1,PASSED,0.982,0.982,OK
+zipf10,10000,mosaic_ow_static,ring=ident useB=0 portR=32 reopen=0 forced=0,22676.1,PASSED,0.982,0.982,OK
+zipf20,10,lower_bound,max_line_cut,12658.0,-,,,
+zipf20,10,barrier_best_35,archive,12983.5,ARCHIVE,,,
+zipf20,10,pr_best_39,archive,12691.0,ARCHIVE,,,
+zipf20,10,mosaic_ow,ring=ident useB=1 portR=3048 reopen=2331 forced=15,20105.5,PASSED,0.646,0.631,OK
+zipf20,10,mosaic_ow_static,ring=ident useB=1 portR=2985 reopen=2268 forced=15,20032.1,PASSED,0.648,0.634,OK
+zipf20,100,lower_bound,max_line_cut,12658.0,-,,,
+zipf20,100,barrier_best_35,archive,15085.9,ARCHIVE,,,
+zipf20,100,pr_best_39,archive,12958.5,ARCHIVE,,,
+zipf20,100,mosaic_ow,ring=ident useB=1 portR=64 reopen=0 forced=0,14182.7,PASSED,1.064,0.914,OK
+zipf20,100,mosaic_ow_static,ring=ident useB=1 portR=64 reopen=0 forced=0,14182.7,PASSED,1.064,0.914,OK
+zipf20,1000,lower_bound,max_line_cut,12658.0,-,,,
+zipf20,1000,barrier_best_35,archive,15985.9,ARCHIVE,,,
+zipf20,1000,pr_best_39,archive,14777.3,ARCHIVE,,,
+zipf20,1000,mosaic_ow,ring=ident useB=1 portR=64 reopen=0 forced=0,15982.7,PASSED,1.000,0.925,OK
+zipf20,1000,mosaic_ow_static,ring=ident useB=1 portR=64 reopen=0 forced=0,15982.7,PASSED,1.000,0.925,OK
+zipf20,10000,lower_bound,max_line_cut,12658.0,-,,,
+zipf20,10000,barrier_best_35,archive,24985.9,ARCHIVE,,,
+zipf20,10000,pr_best_39,archive,24985.9,ARCHIVE,,,
+zipf20,10000,mosaic_ow,ring=ident useB=0 portR=32 reopen=0 forced=0,26886.0,PASSED,0.929,0.929,OK
+zipf20,10000,mosaic_ow_static,ring=ident useB=0 portR=32 reopen=0 forced=0,26886.0,PASSED,0.929,0.929,OK
+persrc,10,lower_bound,max_line_cut,1058.1,-,,,
+persrc,10,barrier_best_35,archive,1583.74,ARCHIVE,,,
+persrc,10,pr_best_39,archive,1583.74,ARCHIVE,,,
+persrc,10,mosaic_ow,ring=nn useB=1 portR=4700 reopen=3708 forced=0,3698.0,PASSED,0.428,0.428,OK
+persrc,10,mosaic_ow_static,ring=nn useB=1 portR=4912 reopen=3920 forced=3,4468.93,PASSED,0.354,0.354,OK
+persrc,100,lower_bound,max_line_cut,1058.1,-,,,
+persrc,100,barrier_best_35,archive,4158.83,ARCHIVE,,,
+persrc,100,pr_best_39,archive,4131.85,ARCHIVE,,,
+persrc,100,mosaic_ow,ring=nn useB=1 portR=64 reopen=0 forced=0,5728.67,PASSED,0.726,0.721,OK
+persrc,100,mosaic_ow_static,ring=nn useB=1 portR=64 reopen=0 forced=0,5728.67,PASSED,0.726,0.721,OK
+persrc,1000,lower_bound,max_line_cut,1058.1,-,,,
+persrc,1000,barrier_best_35,archive,10004.1,ARCHIVE,,,
+persrc,1000,pr_best_39,archive,8253.41,ARCHIVE,,,
+persrc,1000,mosaic_ow,ring=nn useB=1 portR=64 reopen=0 forced=0,7528.67,PASSED,1.329,1.096,OK
+persrc,1000,mosaic_ow_static,ring=nn useB=1 portR=64 reopen=0 forced=0,7528.67,PASSED,1.329,1.096,OK
+persrc,10000,lower_bound,max_line_cut,1058.1,-,,,
+persrc,10000,barrier_best_35,archive,19004.1,ARCHIVE,,,
+persrc,10000,pr_best_39,archive,19004.1,ARCHIVE,,,
+persrc,10000,mosaic_ow,ring=nn useB=0 portR=32 reopen=0 forced=0,22205.2,PASSED,0.856,0.856,OK
+persrc,10000,mosaic_ow_static,ring=nn useB=0 portR=32 reopen=0 forced=0,22205.2,PASSED,0.856,0.856,OK
+uniform,10,mosaic_ow_W1W,waves=1,1318.11,PASSED,,,
+zipf10,10,mosaic_ow_W1W,waves=1,5604.58,PASSED,,,
+zipf10,1000,mosaic_ow_W1W,waves=1,10283.5,PASSED,,,
+persrc,1000,mosaic_ow_W1W,waves=1,7313.26,PASSED,,,
+uniform,10,mosaic_ow_W3W,waves=3,1524.4,PASSED,,,
+zipf10,10,mosaic_ow_W3W,waves=3,8517.54,PASSED,,,
+zipf10,1000,mosaic_ow_W3W,waves=3,10381.2,PASSED,,,
+persrc,1000,mosaic_ow_W3W,waves=3,7900.62,PASSED,,,
+uniform,10,mosaic_ow_W12W,waves=12,3573.84,PASSED,,,
+zipf10,10,mosaic_ow_W12W,waves=12,10739.7,PASSED,,,
+zipf10,1000,mosaic_ow_W12W,waves=12,10259.0,PASSED,,,
+persrc,1000,mosaic_ow_W12W,waves=12,7460.26,PASSED,,,
+zipf10,10,mosaic_ow_dw0,ablation,9213.38,PASSED,,,
+zipf20,10,mosaic_ow_nnforce,ablation,19717.7,PASSED,,,
+zipf10,100,mosaic_ow_dw0,ablation,8475.46,PASSED,,,
+zipf20,100,mosaic_ow_nnforce,ablation,15851.4,PASSED,,,
+zipf10,1000,mosaic_ow_dw0,ablation,10275.5,PASSED,,,
+zipf20,1000,mosaic_ow_nnforce,ablation,17651.4,PASSED,,,
+zipf10,10000,mosaic_ow_dw0,ablation,22676.1,PASSED,,,
+zipf20,10000,mosaic_ow_nnforce,ablation,29377.7,PASSED,,,
+zipf10,10,mosaic_ow_dw4,-wave_dwindow 4,9217.19,PASSED,,,
+zipf10,100,mosaic_ow_dw4,-wave_dwindow 4,8606.31,PASSED,,,
+zipf10,1000,mosaic_ow_dw4,-wave_dwindow 4,10406.3,PASSED,,,
+zipf10,10000,mosaic_ow_dw4,-wave_dwindow 4,22676.1,PASSED,,,
+drift_z10,1000,mosaic_ow_t3000,reopens=0 forced=0,13043.5,PASSED,1.282(vs_serial),0.991(vs_pr_online),
+drift_z10,1000,mosaic_ow_t5000,reopens=32 forced=0,14470.4,PASSED,1.155(vs_serial),1.012(vs_pr_online),
+drift_z10,1000,mosaic_ow_t8000,reopens=32 forced=0,14522.3,PASSED,1.151(vs_serial),1.356(vs_pr_online),
+drift_z10,1000,mosaic_ow_t9500,reopens=32 forced=0,15018.0,PASSED,1.113(vs_serial),1.126(vs_pr_online),
+drift_z10,100,mosaic_ow_t3000,reopens=0,11196.6,PASSED,1.172(vs_serial),1.023(vs_pr_online),
+zipf10_n64,100,mosaic_ow,portR=128,20835.3,PASSED,0.684,0.571,OK
+zipf10_n64,100,barrier_best_35,archive,14245.5,ARCHIVE,,,
+zipf10_n64,100,pr_best_39,archive,11902.0,ARCHIVE,,,
+zipf10_n64,1000,mosaic_ow,portR=128,22635.3,PASSED,1.922,0.910,OK
+zipf10_n64,1000,barrier_best_35,archive,43515.7,ARCHIVE,,,
+zipf10_n64,1000,pr_best_39,archive,20589.6,ARCHIVE,,,
+persrc_n64,1000,mosaic_ow,portR=128,32244.3,PASSED,1.108,0.623,OK
+persrc_n64,1000,barrier_best_35,archive,35737.4,ARCHIVE,,,
+persrc_n64,1000,pr_best_39,archive,20098.7,ARCHIVE,,,

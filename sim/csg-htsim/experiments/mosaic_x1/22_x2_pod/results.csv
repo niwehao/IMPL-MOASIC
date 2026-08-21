@@ -1,0 +1,42 @@
+nv_gbps,leaf_uplink_total,scheme,extra,validation,completion_us,bound_us
+2400,1440,static_ecmp, [grid],PASSED,17506.0,3327
+2400,1440,fast_schedule,-fast_alpha_beta_guard [grid],PASSED,6819.65,3327
+2400,1440,mosaic_schedule,-mosaic_corridors 5 [grid],PASSED,3719.3,3327
+2400,720,static_ecmp, [grid],PASSED,18249.9,6654
+2400,720,fast_schedule,-fast_alpha_beta_guard [grid],PASSED,13396.8,6654
+2400,720,mosaic_schedule,-mosaic_corridors 5 [grid],PASSED,6788.05,6654
+2400,360,static_ecmp, [grid],PASSED,20347.3,13309
+2400,360,fast_schedule,-fast_alpha_beta_guard [grid],PASSED,26533.3,13309
+2400,360,mosaic_schedule,-mosaic_corridors 5 [grid],PASSED,13429.8,13309
+360,1440,static_ecmp, [grid],PASSED,17506.0,7552
+360,1440,fast_schedule,-fast_alpha_beta_guard [grid],PASSED,10126.4,7552
+360,1440,mosaic_schedule,-mosaic_corridors 5 [grid],PASSED,8487.25,7552
+360,720,static_ecmp, [grid],PASSED,18249.9,7552
+360,720,fast_schedule,-fast_alpha_beta_guard [grid],PASSED,14629.1,7552
+360,720,mosaic_schedule,-mosaic_corridors 5 [grid],PASSED,8347.98,7552
+360,360,static_ecmp, [grid],PASSED,20347.3,13309
+360,360,fast_schedule,-fast_alpha_beta_guard [grid],PASSED,27686.0,13309
+360,360,mosaic_schedule,-mosaic_corridors 5 [grid],PASSED,13827.2,13309
+90,1440,static_ecmp, [grid],PASSED,17506.0,15104
+90,1440,fast_schedule,-fast_alpha_beta_guard [grid],PASSED,40478.6,15104
+90,1440,mosaic_schedule,-mosaic_corridors 5 [grid],PASSED,15601.8,15104
+90,720,static_ecmp, [grid],PASSED,18249.9,15104
+90,720,fast_schedule,-fast_alpha_beta_guard [grid],PASSED,40478.6,15104
+90,720,mosaic_schedule,-mosaic_corridors 5 [grid],PASSED,15880.3,15104
+90,360,static_ecmp, [grid],PASSED,20347.3,15104
+90,360,fast_schedule,-fast_alpha_beta_guard [grid],PASSED,40478.6,15104
+90,360,mosaic_schedule,-mosaic_corridors 5 [grid],PASSED,16683.1,15104
+360,720,mosaic_schedule,-mosaic_corridors 1 [ablation],PASSED,17939.1,7552
+360,720,mosaic_schedule,-mosaic_corridors 2 [ablation],PASSED,10217.6,7552
+360,720,mosaic_schedule,-mosaic_corridors 3 [ablation],PASSED,8387.57,7552
+360,720,mosaic_schedule,-mosaic_corridors 4 [ablation],PASSED,8279.07,7552
+360,720,mosaic_schedule,-mosaic_corridors 5 [ablation],PASSED,8347.98,7552
+360,720,mosaic_schedule,-mosaic_corridors 6 [ablation],PASSED,8529.45,7552
+360,720,mosaic_schedule,-mosaic_corridors 5 -mosaic_uniform_init [ablation],PASSED,8700.96,7552
+360,720,mosaic_schedule,-mosaic_corridors 5 -mosaic_static [ablation],PASSED,8627.07,7552
+360,720,static_ecmp, [robust],PASSED,18226.4,8095
+360,720,fast_schedule,-fast_alpha_beta_guard [robust],PASSED,17356.8,8095
+360,720,mosaic_schedule,-mosaic_corridors 5 [robust],PASSED,9003.48,8095
+360,720,static_ecmp, [robust],PASSED,31411.3,13466
+360,720,fast_schedule,-fast_alpha_beta_guard [robust],PASSED,23197.1,13466
+360,720,mosaic_schedule,-mosaic_corridors 5 [robust],PASSED,14336.3,13466

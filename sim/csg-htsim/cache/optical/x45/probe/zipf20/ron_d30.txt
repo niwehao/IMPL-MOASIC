@@ -1,0 +1,2018 @@
+nodes 32 degree 1
+gbps 800 delay_ns 500 reconf_us 0 chunk_bytes 4194304
+pay_initial
+phase  # topo shift 1, offset 1, 1 hops
+edge 0 1
+edge 1 2
+edge 2 3
+edge 3 4
+edge 4 5
+edge 5 6
+edge 6 7
+edge 7 8
+edge 8 9
+edge 9 10
+edge 10 11
+edge 11 12
+edge 12 13
+edge 13 14
+edge 14 15
+edge 15 16
+edge 16 17
+edge 17 18
+edge 18 19
+edge 19 20
+edge 20 21
+edge 21 22
+edge 22 23
+edge 23 24
+edge 24 25
+edge 25 26
+edge 26 27
+edge 27 28
+edge 28 29
+edge 29 30
+edge 30 31
+edge 31 0
+xfer 0 1 123904 via 0 1
+xfer 1 2 91136 via 1 2
+xfer 2 3 69632 via 2 3
+xfer 3 4 59392 via 3 4
+xfer 4 5 10077184 via 4 5
+xfer 5 6 744448 via 5 6
+xfer 6 7 38912 via 6 7
+xfer 7 8 47104 via 7 8
+xfer 8 9 279552 via 8 9
+xfer 9 10 4494336 via 9 10
+xfer 10 11 1201152 via 10 11
+xfer 11 12 409600 via 11 12
+xfer 12 13 111616 via 12 13
+xfer 13 14 205824 via 13 14
+xfer 14 15 2525184 via 14 15
+xfer 15 16 346112 via 15 16
+xfer 16 17 82944 via 16 17
+xfer 17 18 100352 via 17 18
+xfer 18 19 497664 via 18 19
+xfer 19 20 157696 via 19 20
+xfer 20 21 75776 via 20 21
+xfer 21 22 822272 via 21 22
+xfer 22 23 45056 via 22 23
+xfer 23 24 178176 via 23 24
+xfer 24 25 1614848 via 24 25
+xfer 25 26 41314304 via 25 26
+xfer 26 27 144384 via 26 27
+xfer 27 28 237568 via 27 28
+xfer 28 29 64512 via 28 29
+xfer 29 30 139264 via 29 30
+xfer 30 31 51200 via 30 31
+xfer 31 0 40960 via 31 0
+phase  # topo shift 31, offset 31, 1 hops
+edge 0 31
+edge 1 0
+edge 2 1
+edge 3 2
+edge 4 3
+edge 5 4
+edge 6 5
+edge 7 6
+edge 8 7
+edge 9 8
+edge 10 9
+edge 11 10
+edge 12 11
+edge 13 12
+edge 14 13
+edge 15 14
+edge 16 15
+edge 17 16
+edge 18 17
+edge 19 18
+edge 20 19
+edge 21 20
+edge 22 21
+edge 23 22
+edge 24 23
+edge 25 24
+edge 26 25
+edge 27 26
+edge 28 27
+edge 29 28
+edge 30 29
+edge 31 30
+xfer 0 31 51200 via 0 31
+xfer 1 0 41984 via 1 0
+xfer 2 1 123904 via 2 1
+xfer 3 2 91136 via 3 2
+xfer 4 3 69632 via 4 3
+xfer 5 4 69632 via 5 4
+xfer 6 5 10167296 via 6 5
+xfer 7 6 628736 via 7 6
+xfer 8 7 38912 via 8 7
+xfer 9 8 47104 via 9 8
+xfer 10 9 300032 via 10 9
+xfer 11 10 4552704 via 11 10
+xfer 12 11 1125376 via 12 11
+xfer 13 12 402432 via 13 12
+xfer 14 13 111616 via 14 13
+xfer 15 14 212992 via 15 14
+xfer 16 15 2529280 via 16 15
+xfer 17 16 332800 via 17 16
+xfer 18 17 82944 via 18 17
+xfer 19 18 101376 via 19 18
+xfer 20 19 497664 via 20 19
+xfer 21 20 156672 via 21 20
+xfer 22 21 76800 via 22 21
+xfer 23 22 822272 via 23 22
+xfer 24 23 44032 via 24 23
+xfer 25 24 183296 via 25 24
+xfer 26 25 4233216 via 26 25
+xfer 27 26 40326144 via 27 26
+xfer 28 27 55296 via 28 27
+xfer 29 28 237568 via 29 28
+xfer 30 29 64512 via 30 29
+xfer 31 30 139264 via 31 30
+phase  # topo shift 31, offset 30, 2 hops
+edge 0 31
+edge 1 0
+edge 2 1
+edge 3 2
+edge 4 3
+edge 5 4
+edge 6 5
+edge 7 6
+edge 8 7
+edge 9 8
+edge 10 9
+edge 11 10
+edge 12 11
+edge 13 12
+edge 14 13
+edge 15 14
+edge 16 15
+edge 17 16
+edge 18 17
+edge 19 18
+edge 20 19
+edge 21 20
+edge 22 21
+edge 23 22
+edge 24 23
+edge 25 24
+edge 26 25
+edge 27 26
+edge 28 27
+edge 29 28
+edge 30 29
+edge 31 30
+xfer 0 30 139264 via 0 31 30
+xfer 1 31 51200 via 1 0 31
+xfer 2 0 40960 via 2 1 0
+xfer 3 1 123904 via 3 2 1
+xfer 4 2 91136 via 4 3 2
+xfer 5 3 81920 via 5 4 3
+xfer 6 4 59392 via 6 5 4
+xfer 7 5 10074112 via 7 6 5
+xfer 8 6 629760 via 8 7 6
+xfer 9 7 38912 via 9 8 7
+xfer 10 8 51200 via 10 9 8
+xfer 11 9 283648 via 11 10 9
+xfer 12 10 4502528 via 12 11 10
+xfer 13 11 1120256 via 13 12 11
+xfer 14 12 403456 via 14 13 12
+xfer 15 13 115712 via 15 14 13
+xfer 16 14 205824 via 16 15 14
+xfer 17 15 2520064 via 17 16 15
+xfer 18 16 332800 via 18 17 16
+xfer 19 17 82944 via 19 18 17
+xfer 20 18 100352 via 20 19 18
+xfer 21 19 497664 via 21 20 19
+xfer 22 20 158720 via 22 21 20
+xfer 23 21 75776 via 23 22 21
+xfer 24 22 823296 via 24 23 22
+xfer 25 23 45056 via 25 24 23
+xfer 26 24 470016 via 26 25 24
+xfer 27 25 1611776 via 27 26 25
+xfer 28 26 40437760 via 28 27 26
+xfer 29 27 55296 via 29 28 27
+xfer 30 28 238592 via 30 29 28
+xfer 31 29 63488 via 31 30 29
+phase  # topo shift 16, offset 16, 1 hops
+edge 0 16
+edge 1 17
+edge 2 18
+edge 3 19
+edge 4 20
+edge 5 21
+edge 6 22
+edge 7 23
+edge 8 24
+edge 9 25
+edge 10 26
+edge 11 27
+edge 12 28
+edge 13 29
+edge 14 30
+edge 15 31
+edge 16 0
+edge 17 1
+edge 18 2
+edge 19 3
+edge 20 4
+edge 21 5
+edge 22 6
+edge 23 7
+edge 24 8
+edge 25 9
+edge 26 10
+edge 27 11
+edge 28 12
+edge 29 13
+edge 30 14
+edge 31 15
+xfer 0 16 332800 via 0 16
+xfer 1 17 82944 via 1 17
+xfer 2 18 100352 via 2 18
+xfer 3 19 497664 via 3 19
+xfer 4 20 156672 via 4 20
+xfer 5 21 89088 via 5 21
+xfer 6 22 829440 via 6 22
+xfer 7 23 44032 via 7 23
+xfer 8 24 178176 via 8 24
+xfer 9 25 1617920 via 9 25
+xfer 10 26 43270144 via 10 26
+xfer 11 27 55296 via 11 27
+xfer 12 28 239616 via 12 28
+xfer 13 29 64512 via 13 29
+xfer 14 30 139264 via 14 30
+xfer 15 31 53248 via 15 31
+xfer 16 0 41984 via 16 0
+xfer 17 1 123904 via 17 1
+xfer 18 2 91136 via 18 2
+xfer 19 3 69632 via 19 3
+xfer 20 4 59392 via 20 4
+xfer 21 5 10080256 via 21 5
+xfer 22 6 636928 via 22 6
+xfer 23 7 38912 via 23 7
+xfer 24 8 47104 via 24 8
+xfer 25 9 286720 via 25 9
+xfer 26 10 11760640 via 26 10
+xfer 27 11 1119232 via 27 11
+xfer 28 12 403456 via 28 12
+xfer 29 13 111616 via 29 13
+xfer 30 14 205824 via 30 14
+xfer 31 15 2519040 via 31 15
+phase  # topo shift 15, offset 15, 1 hops
+edge 0 15
+edge 1 16
+edge 2 17
+edge 3 18
+edge 4 19
+edge 5 20
+edge 6 21
+edge 7 22
+edge 8 23
+edge 9 24
+edge 10 25
+edge 11 26
+edge 12 27
+edge 13 28
+edge 14 29
+edge 15 30
+edge 16 31
+edge 17 0
+edge 18 1
+edge 19 2
+edge 20 3
+edge 21 4
+edge 22 5
+edge 23 6
+edge 24 7
+edge 25 8
+edge 26 9
+edge 27 10
+edge 28 11
+edge 29 12
+edge 30 13
+edge 31 14
+xfer 0 15 2518016 via 0 15
+xfer 1 16 332800 via 1 16
+xfer 2 17 82944 via 2 17
+xfer 3 18 100352 via 3 18
+xfer 4 19 497664 via 4 19
+xfer 5 20 185344 via 5 20
+xfer 6 21 76800 via 6 21
+xfer 7 22 822272 via 7 22
+xfer 8 23 44032 via 8 23
+xfer 9 24 179200 via 9 24
+xfer 10 25 1729536 via 10 25
+xfer 11 26 40995840 via 11 26
+xfer 12 27 55296 via 12 27
+xfer 13 28 238592 via 13 28
+xfer 14 29 64512 via 14 29
+xfer 15 30 144384 via 15 30
+xfer 16 31 51200 via 16 31
+xfer 17 0 40960 via 17 0
+xfer 18 1 123904 via 18 1
+xfer 19 2 91136 via 19 2
+xfer 20 3 69632 via 20 3
+xfer 21 4 59392 via 21 4
+xfer 22 5 10196992 via 22 5
+xfer 23 6 628736 via 23 6
+xfer 24 7 38912 via 24 7
+xfer 25 8 48128 via 25 8
+xfer 26 9 734208 via 26 9
+xfer 27 10 4477952 via 27 10
+xfer 28 11 1122304 via 28 11
+xfer 29 12 402432 via 29 12
+xfer 30 13 111616 via 30 13
+xfer 31 14 204800 via 31 14
+phase  # topo shift 17, offset 17, 1 hops
+edge 0 17
+edge 1 18
+edge 2 19
+edge 3 20
+edge 4 21
+edge 5 22
+edge 6 23
+edge 7 24
+edge 8 25
+edge 9 26
+edge 10 27
+edge 11 28
+edge 12 29
+edge 13 30
+edge 14 31
+edge 15 0
+edge 16 1
+edge 17 2
+edge 18 3
+edge 19 4
+edge 20 5
+edge 21 6
+edge 22 7
+edge 23 8
+edge 24 9
+edge 25 10
+edge 26 11
+edge 27 12
+edge 28 13
+edge 29 14
+edge 30 15
+edge 31 16
+xfer 0 17 82944 via 0 17
+xfer 1 18 100352 via 1 18
+xfer 2 19 497664 via 2 19
+xfer 3 20 156672 via 3 20
+xfer 4 21 75776 via 4 21
+xfer 5 22 971776 via 5 22
+xfer 6 23 45056 via 6 23
+xfer 7 24 178176 via 7 24
+xfer 8 25 1611776 via 8 25
+xfer 9 26 40464384 via 9 26
+xfer 10 27 58368 via 10 27
+xfer 11 28 241664 via 11 28
+xfer 12 29 64512 via 12 29
+xfer 13 30 139264 via 13 30
+xfer 14 31 51200 via 14 31
+xfer 15 0 43008 via 15 0
+xfer 16 1 124928 via 16 1
+xfer 17 2 91136 via 17 2
+xfer 18 3 69632 via 18 3
+xfer 19 4 59392 via 19 4
+xfer 20 5 10092544 via 20 5
+xfer 21 6 629760 via 21 6
+xfer 22 7 38912 via 22 7
+xfer 23 8 47104 via 23 8
+xfer 24 9 279552 via 24 9
+xfer 25 10 4588544 via 25 10
+xfer 26 11 2939904 via 26 11
+xfer 27 12 402432 via 27 12
+xfer 28 13 111616 via 28 13
+xfer 29 14 204800 via 29 14
+xfer 30 15 2522112 via 30 15
+xfer 31 16 332800 via 31 16
+phase  # topo shift 14, offset 14, 1 hops
+edge 0 14
+edge 1 15
+edge 2 16
+edge 3 17
+edge 4 18
+edge 5 19
+edge 6 20
+edge 7 21
+edge 8 22
+edge 9 23
+edge 10 24
+edge 11 25
+edge 12 26
+edge 13 27
+edge 14 28
+edge 15 29
+edge 16 30
+edge 17 31
+edge 18 0
+edge 19 1
+edge 20 2
+edge 21 3
+edge 22 4
+edge 23 5
+edge 24 6
+edge 25 7
+edge 26 8
+edge 27 9
+edge 28 10
+edge 29 11
+edge 30 12
+edge 31 13
+xfer 0 14 204800 via 0 14
+xfer 1 15 2521088 via 1 15
+xfer 2 16 332800 via 2 16
+xfer 3 17 82944 via 3 17
+xfer 4 18 100352 via 4 18
+xfer 5 19 587776 via 5 19
+xfer 6 20 158720 via 6 20
+xfer 7 21 75776 via 7 21
+xfer 8 22 822272 via 8 22
+xfer 9 23 44032 via 9 23
+xfer 10 24 191488 via 10 24
+xfer 11 25 1638400 via 11 25
+xfer 12 26 40543232 via 12 26
+xfer 13 27 55296 via 13 27
+xfer 14 28 238592 via 14 28
+xfer 15 29 66560 via 15 29
+xfer 16 30 139264 via 16 30
+xfer 17 31 51200 via 17 31
+xfer 18 0 40960 via 18 0
+xfer 19 1 124928 via 19 1
+xfer 20 2 91136 via 20 2
+xfer 21 3 69632 via 21 3
+xfer 22 4 59392 via 22 4
+xfer 23 5 10075136 via 23 5
+xfer 24 6 630784 via 24 6
+xfer 25 7 39936 via 25 7
+xfer 26 8 124928 via 26 8
+xfer 27 9 279552 via 27 9
+xfer 28 10 4491264 via 28 10
+xfer 29 11 1119232 via 29 11
+xfer 30 12 403456 via 30 12
+xfer 31 13 111616 via 31 13
+phase  # topo shift 18, offset 18, 1 hops
+edge 0 18
+edge 1 19
+edge 2 20
+edge 3 21
+edge 4 22
+edge 5 23
+edge 6 24
+edge 7 25
+edge 8 26
+edge 9 27
+edge 10 28
+edge 11 29
+edge 12 30
+edge 13 31
+edge 14 0
+edge 15 1
+edge 16 2
+edge 17 3
+edge 18 4
+edge 19 5
+edge 20 6
+edge 21 7
+edge 22 8
+edge 23 9
+edge 24 10
+edge 25 11
+edge 26 12
+edge 27 13
+edge 28 14
+edge 29 15
+edge 30 16
+edge 31 17
+xfer 0 18 100352 via 0 18
+xfer 1 19 497664 via 1 19
+xfer 2 20 156672 via 2 20
+xfer 3 21 75776 via 3 21
+xfer 4 22 822272 via 4 22
+xfer 5 23 52224 via 5 23
+xfer 6 24 180224 via 6 24
+xfer 7 25 1611776 via 7 25
+xfer 8 26 40320000 via 8 26
+xfer 9 27 55296 via 9 27
+xfer 10 28 254976 via 10 28
+xfer 11 29 65536 via 11 29
+xfer 12 30 139264 via 12 30
+xfer 13 31 51200 via 13 31
+xfer 14 0 41984 via 14 0
+xfer 15 1 129024 via 15 1
+xfer 16 2 91136 via 16 2
+xfer 17 3 69632 via 17 3
+xfer 18 4 59392 via 18 4
+xfer 19 5 10145792 via 19 5
+xfer 20 6 630784 via 20 6
+xfer 21 7 38912 via 21 7
+xfer 22 8 48128 via 22 8
+xfer 23 9 279552 via 23 9
+xfer 24 10 4487168 via 24 10
+xfer 25 11 1146880 via 25 11
+xfer 26 12 1057792 via 26 12
+xfer 27 13 111616 via 27 13
+xfer 28 14 205824 via 28 14
+xfer 29 15 2519040 via 29 15
+xfer 30 16 332800 via 30 16
+xfer 31 17 82944 via 31 17
+phase  # topo shift 7, offset 7, 1 hops
+edge 0 7
+edge 1 8
+edge 2 9
+edge 3 10
+edge 4 11
+edge 5 12
+edge 6 13
+edge 7 14
+edge 8 15
+edge 9 16
+edge 10 17
+edge 11 18
+edge 12 19
+edge 13 20
+edge 14 21
+edge 15 22
+edge 16 23
+edge 17 24
+edge 18 25
+edge 19 26
+edge 20 27
+edge 21 28
+edge 22 29
+edge 23 30
+edge 24 31
+edge 25 0
+edge 26 1
+edge 27 2
+edge 28 3
+edge 29 4
+edge 30 5
+edge 31 6
+xfer 0 7 38912 via 0 7
+xfer 1 8 47104 via 1 8
+xfer 2 9 279552 via 2 9
+xfer 3 10 4478976 via 3 10
+xfer 4 11 1119232 via 4 11
+xfer 5 12 476160 via 5 12
+xfer 6 13 112640 via 6 13
+xfer 7 14 204800 via 7 14
+xfer 8 15 2519040 via 8 15
+xfer 9 16 333824 via 9 16
+xfer 10 17 89088 via 10 17
+xfer 11 18 102400 via 11 18
+xfer 12 19 499712 via 12 19
+xfer 13 20 156672 via 13 20
+xfer 14 21 75776 via 14 21
+xfer 15 22 855040 via 15 22
+xfer 16 23 44032 via 16 23
+xfer 17 24 179200 via 17 24
+xfer 18 25 1612800 via 18 25
+xfer 19 26 40601600 via 19 26
+xfer 20 27 55296 via 20 27
+xfer 21 28 238592 via 21 28
+xfer 22 29 64512 via 22 29
+xfer 23 30 139264 via 23 30
+xfer 24 31 51200 via 24 31
+xfer 25 0 41984 via 25 0
+xfer 26 1 326656 via 26 1
+xfer 27 2 91136 via 27 2
+xfer 28 3 69632 via 28 3
+xfer 29 4 59392 via 29 4
+xfer 30 5 10090496 via 30 5
+xfer 31 6 629760 via 31 6
+phase  # topo shift 9, offset 9, 1 hops
+edge 0 9
+edge 1 10
+edge 2 11
+edge 3 12
+edge 4 13
+edge 5 14
+edge 6 15
+edge 7 16
+edge 8 17
+edge 9 18
+edge 10 19
+edge 11 20
+edge 12 21
+edge 13 22
+edge 14 23
+edge 15 24
+edge 16 25
+edge 17 26
+edge 18 27
+edge 19 28
+edge 20 29
+edge 21 30
+edge 22 31
+edge 23 0
+edge 24 1
+edge 25 2
+edge 26 3
+edge 27 4
+edge 28 5
+edge 29 6
+edge 30 7
+edge 31 8
+xfer 0 9 279552 via 0 9
+xfer 1 10 4483072 via 1 10
+xfer 2 11 1120256 via 2 11
+xfer 3 12 402432 via 3 12
+xfer 4 13 111616 via 4 13
+xfer 5 14 242688 via 5 14
+xfer 6 15 2541568 via 6 15
+xfer 7 16 332800 via 7 16
+xfer 8 17 82944 via 8 17
+xfer 9 18 100352 via 9 18
+xfer 10 19 533504 via 10 19
+xfer 11 20 159744 via 11 20
+xfer 12 21 75776 via 12 21
+xfer 13 22 823296 via 13 22
+xfer 14 23 44032 via 14 23
+xfer 15 24 185344 via 15 24
+xfer 16 25 1618944 via 16 25
+xfer 17 26 40341504 via 17 26
+xfer 18 27 55296 via 18 27
+xfer 19 28 239616 via 19 28
+xfer 20 29 64512 via 20 29
+xfer 21 30 139264 via 21 30
+xfer 22 31 51200 via 22 31
+xfer 23 0 40960 via 23 0
+xfer 24 1 123904 via 24 1
+xfer 25 2 93184 via 25 2
+xfer 26 3 183296 via 26 3
+xfer 27 4 59392 via 27 4
+xfer 28 5 10105856 via 28 5
+xfer 29 6 629760 via 29 6
+xfer 30 7 38912 via 30 7
+xfer 31 8 47104 via 31 8
+phase  # topo shift 23, offset 23, 1 hops
+edge 0 23
+edge 1 24
+edge 2 25
+edge 3 26
+edge 4 27
+edge 5 28
+edge 6 29
+edge 7 30
+edge 8 31
+edge 9 0
+edge 10 1
+edge 11 2
+edge 12 3
+edge 13 4
+edge 14 5
+edge 15 6
+edge 16 7
+edge 17 8
+edge 18 9
+edge 19 10
+edge 20 11
+edge 21 12
+edge 22 13
+edge 23 14
+edge 24 15
+edge 25 16
+edge 26 17
+edge 27 18
+edge 28 19
+edge 29 20
+edge 30 21
+edge 31 22
+xfer 0 23 44032 via 0 23
+xfer 1 24 179200 via 1 24
+xfer 2 25 1612800 via 2 25
+xfer 3 26 40336384 via 3 26
+xfer 4 27 55296 via 4 27
+xfer 5 28 281600 via 5 28
+xfer 6 29 64512 via 6 29
+xfer 7 30 139264 via 7 30
+xfer 8 31 51200 via 8 31
+xfer 9 0 41984 via 9 0
+xfer 10 1 133120 via 10 1
+xfer 11 2 92160 via 11 2
+xfer 12 3 69632 via 12 3
+xfer 13 4 59392 via 13 4
+xfer 14 5 10100736 via 14 5
+xfer 15 6 654336 via 15 6
+xfer 16 7 38912 via 16 7
+xfer 17 8 47104 via 17 8
+xfer 18 9 279552 via 18 9
+xfer 19 10 4508672 via 19 10
+xfer 20 11 1121280 via 20 11
+xfer 21 12 402432 via 21 12
+xfer 22 13 112640 via 22 13
+xfer 23 14 204800 via 23 14
+xfer 24 15 2524160 via 24 15
+xfer 25 16 340992 via 25 16
+xfer 26 17 218112 via 26 17
+xfer 27 18 100352 via 27 18
+xfer 28 19 498688 via 28 19
+xfer 29 20 156672 via 29 20
+xfer 30 21 75776 via 30 21
+xfer 31 22 822272 via 31 22
+phase  # topo shift 25, offset 25, 1 hops
+edge 0 25
+edge 1 26
+edge 2 27
+edge 3 28
+edge 4 29
+edge 5 30
+edge 6 31
+edge 7 0
+edge 8 1
+edge 9 2
+edge 10 3
+edge 11 4
+edge 12 5
+edge 13 6
+edge 14 7
+edge 15 8
+edge 16 9
+edge 17 10
+edge 18 11
+edge 19 12
+edge 20 13
+edge 21 14
+edge 22 15
+edge 23 16
+edge 24 17
+edge 25 18
+edge 26 19
+edge 27 20
+edge 28 21
+edge 29 22
+edge 30 23
+edge 31 24
+xfer 0 25 1611776 via 0 25
+xfer 1 26 40366080 via 1 26
+xfer 2 27 55296 via 2 27
+xfer 3 28 237568 via 3 28
+xfer 4 29 63488 via 4 29
+xfer 5 30 164864 via 5 30
+xfer 6 31 51200 via 6 31
+xfer 7 0 40960 via 7 0
+xfer 8 1 123904 via 8 1
+xfer 9 2 91136 via 9 2
+xfer 10 3 74752 via 10 3
+xfer 11 4 60416 via 11 4
+xfer 12 5 10131456 via 12 5
+xfer 13 6 629760 via 13 6
+xfer 14 7 38912 via 14 7
+xfer 15 8 49152 via 15 8
+xfer 16 9 280576 via 16 9
+xfer 17 10 4480000 via 17 10
+xfer 18 11 1120256 via 18 11
+xfer 19 12 405504 via 19 12
+xfer 20 13 111616 via 20 13
+xfer 21 14 204800 via 21 14
+xfer 22 15 2548736 via 22 15
+xfer 23 16 332800 via 23 16
+xfer 24 17 82944 via 24 17
+xfer 25 18 102400 via 25 18
+xfer 26 19 1306624 via 26 19
+xfer 27 20 156672 via 27 20
+xfer 28 21 75776 via 28 21
+xfer 29 22 822272 via 29 22
+xfer 30 23 44032 via 30 23
+xfer 31 24 178176 via 31 24
+phase  # topo shift 12, offset 12, 1 hops
+edge 0 12
+edge 1 13
+edge 2 14
+edge 3 15
+edge 4 16
+edge 5 17
+edge 6 18
+edge 7 19
+edge 8 20
+edge 9 21
+edge 10 22
+edge 11 23
+edge 12 24
+edge 13 25
+edge 14 26
+edge 15 27
+edge 16 28
+edge 17 29
+edge 18 30
+edge 19 31
+edge 20 0
+edge 21 1
+edge 22 2
+edge 23 3
+edge 24 4
+edge 25 5
+edge 26 6
+edge 27 7
+edge 28 8
+edge 29 9
+edge 30 10
+edge 31 11
+xfer 0 12 402432 via 0 12
+xfer 1 13 111616 via 1 13
+xfer 2 14 204800 via 2 14
+xfer 3 15 2519040 via 3 15
+xfer 4 16 332800 via 4 16
+xfer 5 17 98304 via 5 17
+xfer 6 18 101376 via 6 18
+xfer 7 19 496640 via 7 19
+xfer 8 20 156672 via 8 20
+xfer 9 21 75776 via 9 21
+xfer 10 22 882688 via 10 22
+xfer 11 23 45056 via 11 23
+xfer 12 24 179200 via 12 24
+xfer 13 25 1612800 via 13 25
+xfer 14 26 40414208 via 14 26
+xfer 15 27 57344 via 15 27
+xfer 16 28 238592 via 16 28
+xfer 17 29 64512 via 17 29
+xfer 18 30 139264 via 18 30
+xfer 19 31 51200 via 19 31
+xfer 20 0 41984 via 20 0
+xfer 21 1 123904 via 21 1
+xfer 22 2 92160 via 22 2
+xfer 23 3 69632 via 23 3
+xfer 24 4 59392 via 24 4
+xfer 25 5 10323968 via 25 5
+xfer 26 6 1653760 via 26 6
+xfer 27 7 38912 via 27 7
+xfer 28 8 47104 via 28 8
+xfer 29 9 279552 via 29 9
+xfer 30 10 4484096 via 30 10
+xfer 31 11 1119232 via 31 11
+phase  # topo shift 20, offset 20, 1 hops
+edge 0 20
+edge 1 21
+edge 2 22
+edge 3 23
+edge 4 24
+edge 5 25
+edge 6 26
+edge 7 27
+edge 8 28
+edge 9 29
+edge 10 30
+edge 11 31
+edge 12 0
+edge 13 1
+edge 14 2
+edge 15 3
+edge 16 4
+edge 17 5
+edge 18 6
+edge 19 7
+edge 20 8
+edge 21 9
+edge 22 10
+edge 23 11
+edge 24 12
+edge 25 13
+edge 26 14
+edge 27 15
+edge 28 16
+edge 29 17
+edge 30 18
+edge 31 19
+xfer 0 20 156672 via 0 20
+xfer 1 21 75776 via 1 21
+xfer 2 22 822272 via 2 22
+xfer 3 23 44032 via 3 23
+xfer 4 24 178176 via 4 24
+xfer 5 25 1905664 via 5 25
+xfer 6 26 40681472 via 6 26
+xfer 7 27 54272 via 7 27
+xfer 8 28 237568 via 8 28
+xfer 9 29 64512 via 9 29
+xfer 10 30 149504 via 10 30
+xfer 11 31 52224 via 11 31
+xfer 12 0 41984 via 12 0
+xfer 13 1 123904 via 13 1
+xfer 14 2 91136 via 14 2
+xfer 15 3 72704 via 15 3
+xfer 16 4 59392 via 16 4
+xfer 17 5 10081280 via 17 5
+xfer 18 6 629760 via 18 6
+xfer 19 7 38912 via 19 7
+xfer 20 8 47104 via 20 8
+xfer 21 9 279552 via 21 9
+xfer 22 10 4532224 via 22 10
+xfer 23 11 1119232 via 23 11
+xfer 24 12 403456 via 24 12
+xfer 25 13 113664 via 25 13
+xfer 26 14 539648 via 26 14
+xfer 27 15 2519040 via 27 15
+xfer 28 16 333824 via 28 16
+xfer 29 17 82944 via 29 17
+xfer 30 18 100352 via 30 18
+xfer 31 19 496640 via 31 19
+phase  # topo shift 6, offset 6, 1 hops
+edge 0 6
+edge 1 7
+edge 2 8
+edge 3 9
+edge 4 10
+edge 5 11
+edge 6 12
+edge 7 13
+edge 8 14
+edge 9 15
+edge 10 16
+edge 11 17
+edge 12 18
+edge 13 19
+edge 14 20
+edge 15 21
+edge 16 22
+edge 17 23
+edge 18 24
+edge 19 25
+edge 20 26
+edge 21 27
+edge 22 28
+edge 23 29
+edge 24 30
+edge 25 31
+edge 26 0
+edge 27 1
+edge 28 2
+edge 29 3
+edge 30 4
+edge 31 5
+xfer 0 6 628736 via 0 6
+xfer 1 7 38912 via 1 7
+xfer 2 8 47104 via 2 8
+xfer 3 9 279552 via 3 9
+xfer 4 10 4478976 via 4 10
+xfer 5 11 1323008 via 5 11
+xfer 6 12 406528 via 6 12
+xfer 7 13 111616 via 7 13
+xfer 8 14 204800 via 8 14
+xfer 9 15 2527232 via 9 15
+xfer 10 16 357376 via 10 16
+xfer 11 17 83968 via 11 17
+xfer 12 18 100352 via 12 18
+xfer 13 19 497664 via 13 19
+xfer 14 20 157696 via 14 20
+xfer 15 21 78848 via 15 21
+xfer 16 22 825344 via 16 22
+xfer 17 23 44032 via 17 23
+xfer 18 24 179200 via 18 24
+xfer 19 25 1623040 via 19 25
+xfer 20 26 40386560 via 20 26
+xfer 21 27 55296 via 21 27
+xfer 22 28 240640 via 22 28
+xfer 23 29 63488 via 23 29
+xfer 24 30 139264 via 24 30
+xfer 25 31 52224 via 25 31
+xfer 26 0 109568 via 26 0
+xfer 27 1 123904 via 27 1
+xfer 28 2 91136 via 28 2
+xfer 29 3 69632 via 29 3
+xfer 30 4 59392 via 30 4
+xfer 31 5 10076160 via 31 5
+phase  # topo shift 26, offset 26, 1 hops
+edge 0 26
+edge 1 27
+edge 2 28
+edge 3 29
+edge 4 30
+edge 5 31
+edge 6 0
+edge 7 1
+edge 8 2
+edge 9 3
+edge 10 4
+edge 11 5
+edge 12 6
+edge 13 7
+edge 14 8
+edge 15 9
+edge 16 10
+edge 17 11
+edge 18 12
+edge 19 13
+edge 20 14
+edge 21 15
+edge 22 16
+edge 23 17
+edge 24 18
+edge 25 19
+edge 26 20
+edge 27 21
+edge 28 22
+edge 29 23
+edge 30 24
+edge 31 25
+xfer 0 26 40316928 via 0 26
+xfer 1 27 55296 via 1 27
+xfer 2 28 238592 via 2 28
+xfer 3 29 63488 via 3 29
+xfer 4 30 139264 via 4 30
+xfer 5 31 60416 via 5 31
+xfer 6 0 41984 via 6 0
+xfer 7 1 123904 via 7 1
+xfer 8 2 91136 via 8 2
+xfer 9 3 69632 via 9 3
+xfer 10 4 63488 via 10 4
+xfer 11 5 10245120 via 11 5
+xfer 12 6 632832 via 12 6
+xfer 13 7 38912 via 13 7
+xfer 14 8 47104 via 14 8
+xfer 15 9 290816 via 15 9
+xfer 16 10 4497408 via 16 10
+xfer 17 11 1119232 via 17 11
+xfer 18 12 402432 via 18 12
+xfer 19 13 111616 via 19 13
+xfer 20 14 205824 via 20 14
+xfer 21 15 2520064 via 21 15
+xfer 22 16 336896 via 22 16
+xfer 23 17 82944 via 23 17
+xfer 24 18 100352 via 24 18
+xfer 25 19 508928 via 25 19
+xfer 26 20 412672 via 26 20
+xfer 27 21 75776 via 27 21
+xfer 28 22 824320 via 28 22
+xfer 29 23 44032 via 29 23
+xfer 30 24 179200 via 30 24
+xfer 31 25 1611776 via 31 25
+phase  # topo shift 3, offset 3, 1 hops
+edge 0 3
+edge 1 4
+edge 2 5
+edge 3 6
+edge 4 7
+edge 5 8
+edge 6 9
+edge 7 10
+edge 8 11
+edge 9 12
+edge 10 13
+edge 11 14
+edge 12 15
+edge 13 16
+edge 14 17
+edge 15 18
+edge 16 19
+edge 17 20
+edge 18 21
+edge 19 22
+edge 20 23
+edge 21 24
+edge 22 25
+edge 23 26
+edge 24 27
+edge 25 28
+edge 26 29
+edge 27 30
+edge 28 31
+edge 29 0
+edge 30 1
+edge 31 2
+xfer 0 3 69632 via 0 3
+xfer 1 4 59392 via 1 4
+xfer 2 5 10082304 via 2 5
+xfer 3 6 629760 via 3 6
+xfer 4 7 38912 via 4 7
+xfer 5 8 56320 via 5 8
+xfer 6 9 281600 via 6 9
+xfer 7 10 4476928 via 7 10
+xfer 8 11 1119232 via 8 11
+xfer 9 12 404480 via 9 12
+xfer 10 13 119808 via 10 13
+xfer 11 14 208896 via 11 14
+xfer 12 15 2532352 via 12 15
+xfer 13 16 332800 via 13 16
+xfer 14 17 82944 via 14 17
+xfer 15 18 104448 via 15 18
+xfer 16 19 499712 via 16 19
+xfer 17 20 156672 via 17 20
+xfer 18 21 75776 via 18 21
+xfer 19 22 827392 via 19 22
+xfer 20 23 44032 via 20 23
+xfer 21 24 179200 via 21 24
+xfer 22 25 1631232 via 22 25
+xfer 23 26 40320000 via 23 26
+xfer 24 27 55296 via 24 27
+xfer 25 28 243712 via 25 28
+xfer 26 29 168960 via 26 29
+xfer 27 30 139264 via 27 30
+xfer 28 31 51200 via 28 31
+xfer 29 0 40960 via 29 0
+xfer 30 1 123904 via 30 1
+xfer 31 2 91136 via 31 2
+phase  # topo shift 5, offset 5, 1 hops
+edge 0 5
+edge 1 6
+edge 2 7
+edge 3 8
+edge 4 9
+edge 5 10
+edge 6 11
+edge 7 12
+edge 8 13
+edge 9 14
+edge 10 15
+edge 11 16
+edge 12 17
+edge 13 18
+edge 14 19
+edge 15 20
+edge 16 21
+edge 17 22
+edge 18 23
+edge 19 24
+edge 20 25
+edge 21 26
+edge 22 27
+edge 23 28
+edge 24 29
+edge 25 30
+edge 26 31
+edge 27 0
+edge 28 1
+edge 29 2
+edge 30 3
+edge 31 4
+xfer 0 5 10075136 via 0 5
+xfer 1 6 629760 via 1 6
+xfer 2 7 38912 via 2 7
+xfer 3 8 47104 via 3 8
+xfer 4 9 279552 via 4 9
+xfer 5 10 5295104 via 5 10
+xfer 6 11 1129472 via 6 11
+xfer 7 12 402432 via 7 12
+xfer 8 13 111616 via 8 13
+xfer 9 14 205824 via 9 14
+xfer 10 15 2702336 via 10 15
+xfer 11 16 337920 via 11 16
+xfer 12 17 82944 via 12 17
+xfer 13 18 100352 via 13 18
+xfer 14 19 498688 via 14 19
+xfer 15 20 162816 via 15 20
+xfer 16 21 75776 via 16 21
+xfer 17 22 822272 via 17 22
+xfer 18 23 44032 via 18 23
+xfer 19 24 180224 via 19 24
+xfer 20 25 1614848 via 20 25
+xfer 21 26 40335360 via 21 26
+xfer 22 27 55296 via 22 27
+xfer 23 28 237568 via 23 28
+xfer 24 29 64512 via 24 29
+xfer 25 30 142336 via 25 30
+xfer 26 31 134144 via 26 31
+xfer 27 0 40960 via 27 0
+xfer 28 1 123904 via 28 1
+xfer 29 2 91136 via 29 2
+xfer 30 3 69632 via 30 3
+xfer 31 4 59392 via 31 4
+phase  # topo shift 11, offset 11, 1 hops
+edge 0 11
+edge 1 12
+edge 2 13
+edge 3 14
+edge 4 15
+edge 5 16
+edge 6 17
+edge 7 18
+edge 8 19
+edge 9 20
+edge 10 21
+edge 11 22
+edge 12 23
+edge 13 24
+edge 14 25
+edge 15 26
+edge 16 27
+edge 17 28
+edge 18 29
+edge 19 30
+edge 20 31
+edge 21 0
+edge 22 1
+edge 23 2
+edge 24 3
+edge 25 4
+edge 26 5
+edge 27 6
+edge 28 7
+edge 29 8
+edge 30 9
+edge 31 10
+xfer 0 11 1119232 via 0 11
+xfer 1 12 403456 via 1 12
+xfer 2 13 111616 via 2 13
+xfer 3 14 204800 via 3 14
+xfer 4 15 2519040 via 4 15
+xfer 5 16 393216 via 5 16
+xfer 6 17 83968 via 6 17
+xfer 7 18 100352 via 7 18
+xfer 8 19 496640 via 8 19
+xfer 9 20 157696 via 9 20
+xfer 10 21 80896 via 10 21
+xfer 11 22 835584 via 11 22
+xfer 12 23 44032 via 12 23
+xfer 13 24 179200 via 13 24
+xfer 14 25 1615872 via 14 25
+xfer 15 26 41911296 via 15 26
+xfer 16 27 55296 via 16 27
+xfer 17 28 238592 via 17 28
+xfer 18 29 64512 via 18 29
+xfer 19 30 140288 via 19 30
+xfer 20 31 51200 via 20 31
+xfer 21 0 40960 via 21 0
+xfer 22 1 124928 via 22 1
+xfer 23 2 91136 via 23 2
+xfer 24 3 69632 via 24 3
+xfer 25 4 60416 via 25 4
+xfer 26 5 26481664 via 26 5
+xfer 27 6 629760 via 27 6
+xfer 28 7 38912 via 28 7
+xfer 29 8 47104 via 29 8
+xfer 30 9 279552 via 30 9
+xfer 31 10 4477952 via 31 10
+phase  # topo shift 13, offset 13, 1 hops
+edge 0 13
+edge 1 14
+edge 2 15
+edge 3 16
+edge 4 17
+edge 5 18
+edge 6 19
+edge 7 20
+edge 8 21
+edge 9 22
+edge 10 23
+edge 11 24
+edge 12 25
+edge 13 26
+edge 14 27
+edge 15 28
+edge 16 29
+edge 17 30
+edge 18 31
+edge 19 0
+edge 20 1
+edge 21 2
+edge 22 3
+edge 23 4
+edge 24 5
+edge 25 6
+edge 26 7
+edge 27 8
+edge 28 9
+edge 29 10
+edge 30 11
+edge 31 12
+xfer 0 13 111616 via 0 13
+xfer 1 14 205824 via 1 14
+xfer 2 15 2520064 via 2 15
+xfer 3 16 332800 via 3 16
+xfer 4 17 82944 via 4 17
+xfer 5 18 118784 via 5 18
+xfer 6 19 501760 via 6 19
+xfer 7 20 156672 via 7 20
+xfer 8 21 75776 via 8 21
+xfer 9 22 825344 via 9 22
+xfer 10 23 47104 via 10 23
+xfer 11 24 181248 via 11 24
+xfer 12 25 1620992 via 12 25
+xfer 13 26 40359936 via 13 26
+xfer 14 27 55296 via 14 27
+xfer 15 28 247808 via 15 28
+xfer 16 29 64512 via 16 29
+xfer 17 30 139264 via 17 30
+xfer 18 31 51200 via 18 31
+xfer 19 0 41984 via 19 0
+xfer 20 1 123904 via 20 1
+xfer 21 2 91136 via 21 2
+xfer 22 3 70656 via 22 3
+xfer 23 4 59392 via 23 4
+xfer 24 5 10096640 via 24 5
+xfer 25 6 645120 via 25 6
+xfer 26 7 102400 via 26 7
+xfer 27 8 47104 via 27 8
+xfer 28 9 280576 via 28 9
+xfer 29 10 4478976 via 29 10
+xfer 30 11 1120256 via 30 11
+xfer 31 12 402432 via 31 12
+phase  # topo shift 19, offset 19, 1 hops
+edge 0 19
+edge 1 20
+edge 2 21
+edge 3 22
+edge 4 23
+edge 5 24
+edge 6 25
+edge 7 26
+edge 8 27
+edge 9 28
+edge 10 29
+edge 11 30
+edge 12 31
+edge 13 0
+edge 14 1
+edge 15 2
+edge 16 3
+edge 17 4
+edge 18 5
+edge 19 6
+edge 20 7
+edge 21 8
+edge 22 9
+edge 23 10
+edge 24 11
+edge 25 12
+edge 26 13
+edge 27 14
+edge 28 15
+edge 29 16
+edge 30 17
+edge 31 18
+xfer 0 19 496640 via 0 19
+xfer 1 20 156672 via 1 20
+xfer 2 21 75776 via 2 21
+xfer 3 22 822272 via 3 22
+xfer 4 23 44032 via 4 23
+xfer 5 24 210944 via 5 24
+xfer 6 25 1626112 via 6 25
+xfer 7 26 40316928 via 7 26
+xfer 8 27 54272 via 8 27
+xfer 9 28 238592 via 9 28
+xfer 10 29 68608 via 10 29
+xfer 11 30 141312 via 11 30
+xfer 12 31 51200 via 12 31
+xfer 13 0 40960 via 13 0
+xfer 14 1 123904 via 14 1
+xfer 15 2 94208 via 15 2
+xfer 16 3 69632 via 16 3
+xfer 17 4 59392 via 17 4
+xfer 18 5 10084352 via 18 5
+xfer 19 6 633856 via 19 6
+xfer 20 7 38912 via 20 7
+xfer 21 8 47104 via 21 8
+xfer 22 9 282624 via 22 9
+xfer 23 10 4477952 via 23 10
+xfer 24 11 1121280 via 24 11
+xfer 25 12 412672 via 25 12
+xfer 26 13 292864 via 26 13
+xfer 27 14 204800 via 27 14
+xfer 28 15 2526208 via 28 15
+xfer 29 16 332800 via 29 16
+xfer 30 17 82944 via 30 17
+xfer 31 18 100352 via 31 18
+phase  # topo shift 21, offset 21, 1 hops
+edge 0 21
+edge 1 22
+edge 2 23
+edge 3 24
+edge 4 25
+edge 5 26
+edge 6 27
+edge 7 28
+edge 8 29
+edge 9 30
+edge 10 31
+edge 11 0
+edge 12 1
+edge 13 2
+edge 14 3
+edge 15 4
+edge 16 5
+edge 17 6
+edge 18 7
+edge 19 8
+edge 20 9
+edge 21 10
+edge 22 11
+edge 23 12
+edge 24 13
+edge 25 14
+edge 26 15
+edge 27 16
+edge 28 17
+edge 29 18
+edge 30 19
+edge 31 20
+xfer 0 21 75776 via 0 21
+xfer 1 22 823296 via 1 22
+xfer 2 23 44032 via 2 23
+xfer 3 24 178176 via 3 24
+xfer 4 25 1611776 via 4 25
+xfer 5 26 47673344 via 5 26
+xfer 6 27 55296 via 6 27
+xfer 7 28 237568 via 7 28
+xfer 8 29 63488 via 8 29
+xfer 9 30 139264 via 9 30
+xfer 10 31 54272 via 10 31
+xfer 11 0 41984 via 11 0
+xfer 12 1 124928 via 12 1
+xfer 13 2 91136 via 13 2
+xfer 14 3 69632 via 14 3
+xfer 15 4 61440 via 15 4
+xfer 16 5 10120192 via 16 5
+xfer 17 6 629760 via 17 6
+xfer 18 7 38912 via 18 7
+xfer 19 8 48128 via 19 8
+xfer 20 9 279552 via 20 9
+xfer 21 10 4480000 via 21 10
+xfer 22 11 1132544 via 22 11
+xfer 23 12 402432 via 23 12
+xfer 24 13 111616 via 24 13
+xfer 25 14 209920 via 25 14
+xfer 26 15 6615040 via 26 15
+xfer 27 16 332800 via 27 16
+xfer 28 17 82944 via 28 17
+xfer 29 18 100352 via 29 18
+xfer 30 19 497664 via 30 19
+xfer 31 20 156672 via 31 20
+phase  # topo shift 27, offset 27, 1 hops
+edge 0 27
+edge 1 28
+edge 2 29
+edge 3 30
+edge 4 31
+edge 5 0
+edge 6 1
+edge 7 2
+edge 8 3
+edge 9 4
+edge 10 5
+edge 11 6
+edge 12 7
+edge 13 8
+edge 14 9
+edge 15 10
+edge 16 11
+edge 17 12
+edge 18 13
+edge 19 14
+edge 20 15
+edge 21 16
+edge 22 17
+edge 23 18
+edge 24 19
+edge 25 20
+edge 26 21
+edge 27 22
+edge 28 23
+edge 29 24
+edge 30 25
+edge 31 26
+xfer 0 27 54272 via 0 27
+xfer 1 28 238592 via 1 28
+xfer 2 29 64512 via 2 29
+xfer 3 30 139264 via 3 30
+xfer 4 31 51200 via 4 31
+xfer 5 0 49152 via 5 0
+xfer 6 1 124928 via 6 1
+xfer 7 2 91136 via 7 2
+xfer 8 3 69632 via 8 3
+xfer 9 4 59392 via 9 4
+xfer 10 5 10812416 via 10 5
+xfer 11 6 640000 via 11 6
+xfer 12 7 38912 via 12 7
+xfer 13 8 47104 via 13 8
+xfer 14 9 280576 via 14 9
+xfer 15 10 4655104 via 15 10
+xfer 16 11 1124352 via 16 11
+xfer 17 12 402432 via 17 12
+xfer 18 13 111616 via 18 13
+xfer 19 14 206848 via 19 14
+xfer 20 15 2523136 via 20 15
+xfer 21 16 332800 via 21 16
+xfer 22 17 83968 via 22 17
+xfer 23 18 100352 via 23 18
+xfer 24 19 497664 via 24 19
+xfer 25 20 160768 via 25 20
+xfer 26 21 199680 via 26 21
+xfer 27 22 822272 via 27 22
+xfer 28 23 44032 via 28 23
+xfer 29 24 178176 via 29 24
+xfer 30 25 1613824 via 30 25
+xfer 31 26 40324096 via 31 26
+phase  # topo shift 29, offset 29, 1 hops
+edge 0 29
+edge 1 30
+edge 2 31
+edge 3 0
+edge 4 1
+edge 5 2
+edge 6 3
+edge 7 4
+edge 8 5
+edge 9 6
+edge 10 7
+edge 11 8
+edge 12 9
+edge 13 10
+edge 14 11
+edge 15 12
+edge 16 13
+edge 17 14
+edge 18 15
+edge 19 16
+edge 20 17
+edge 21 18
+edge 22 19
+edge 23 20
+edge 24 21
+edge 25 22
+edge 26 23
+edge 27 24
+edge 28 25
+edge 29 26
+edge 30 27
+edge 31 28
+xfer 0 29 63488 via 0 29
+xfer 1 30 139264 via 1 30
+xfer 2 31 51200 via 2 31
+xfer 3 0 40960 via 3 0
+xfer 4 1 123904 via 4 1
+xfer 5 2 107520 via 5 2
+xfer 6 3 69632 via 6 3
+xfer 7 4 59392 via 7 4
+xfer 8 5 10076160 via 8 5
+xfer 9 6 631808 via 9 6
+xfer 10 7 41984 via 10 7
+xfer 11 8 48128 via 11 8
+xfer 12 9 280576 via 12 9
+xfer 13 10 4482048 via 13 10
+xfer 14 11 1122304 via 14 11
+xfer 15 12 418816 via 15 12
+xfer 16 13 111616 via 16 13
+xfer 17 14 204800 via 17 14
+xfer 18 15 2521088 via 18 15
+xfer 19 16 334848 via 19 16
+xfer 20 17 82944 via 20 17
+xfer 21 18 100352 via 21 18
+xfer 22 19 502784 via 22 19
+xfer 23 20 156672 via 23 20
+xfer 24 21 75776 via 24 21
+xfer 25 22 842752 via 25 22
+xfer 26 23 116736 via 26 23
+xfer 27 24 178176 via 27 24
+xfer 28 25 1616896 via 28 25
+xfer 29 26 40331264 via 29 26
+xfer 30 27 55296 via 30 27
+xfer 31 28 237568 via 31 28
+phase  # topo shift 2, offset 2, 1 hops
+edge 0 2
+edge 1 3
+edge 2 4
+edge 3 5
+edge 4 6
+edge 5 7
+edge 6 8
+edge 7 9
+edge 8 10
+edge 9 11
+edge 10 12
+edge 11 13
+edge 12 14
+edge 13 15
+edge 14 16
+edge 15 17
+edge 16 18
+edge 17 19
+edge 18 20
+edge 19 21
+edge 20 22
+edge 21 23
+edge 22 24
+edge 23 25
+edge 24 26
+edge 25 27
+edge 26 28
+edge 27 29
+edge 28 30
+edge 29 31
+edge 30 0
+edge 31 1
+xfer 0 2 91136 via 0 2
+xfer 1 3 69632 via 1 3
+xfer 2 4 59392 via 2 4
+xfer 3 5 10079232 via 3 5
+xfer 4 6 629760 via 4 6
+xfer 5 7 46080 via 5 7
+xfer 6 8 48128 via 6 8
+xfer 7 9 279552 via 7 9
+xfer 8 10 4477952 via 8 10
+xfer 9 11 1123328 via 9 11
+xfer 10 12 432128 via 10 12
+xfer 11 13 112640 via 11 13
+xfer 12 14 205824 via 12 14
+xfer 13 15 2521088 via 13 15
+xfer 14 16 333824 via 14 16
+xfer 15 17 86016 via 15 17
+xfer 16 18 100352 via 16 18
+xfer 17 19 497664 via 17 19
+xfer 18 20 156672 via 18 20
+xfer 19 21 75776 via 19 21
+xfer 20 22 823296 via 20 22
+xfer 21 23 44032 via 21 23
+xfer 22 24 181248 via 22 24
+xfer 23 25 1611776 via 23 25
+xfer 24 26 40400896 via 24 26
+xfer 25 27 56320 via 25 27
+xfer 26 28 625664 via 26 28
+xfer 27 29 63488 via 27 29
+xfer 28 30 139264 via 28 30
+xfer 29 31 51200 via 29 31
+xfer 30 0 41984 via 30 0
+xfer 31 1 123904 via 31 1
+phase  # topo shift 4, offset 4, 1 hops
+edge 0 4
+edge 1 5
+edge 2 6
+edge 3 7
+edge 4 8
+edge 5 9
+edge 6 10
+edge 7 11
+edge 8 12
+edge 9 13
+edge 10 14
+edge 11 15
+edge 12 16
+edge 13 17
+edge 14 18
+edge 15 19
+edge 16 20
+edge 17 21
+edge 18 22
+edge 19 23
+edge 20 24
+edge 21 25
+edge 22 26
+edge 23 27
+edge 24 28
+edge 25 29
+edge 26 30
+edge 27 31
+edge 28 0
+edge 29 1
+edge 30 2
+edge 31 3
+xfer 0 4 59392 via 0 4
+xfer 1 5 10087424 via 1 5
+xfer 2 6 629760 via 2 6
+xfer 3 7 38912 via 3 7
+xfer 4 8 47104 via 4 8
+xfer 5 9 330752 via 5 9
+xfer 6 10 4517888 via 6 10
+xfer 7 11 1119232 via 7 11
+xfer 8 12 402432 via 8 12
+xfer 9 13 111616 via 9 13
+xfer 10 14 220160 via 10 14
+xfer 11 15 2561024 via 11 15
+xfer 12 16 334848 via 12 16
+xfer 13 17 82944 via 13 17
+xfer 14 18 100352 via 14 18
+xfer 15 19 517120 via 15 19
+xfer 16 20 157696 via 16 20
+xfer 17 21 75776 via 17 21
+xfer 18 22 822272 via 18 22
+xfer 19 23 45056 via 19 23
+xfer 20 24 179200 via 20 24
+xfer 21 25 1612800 via 21 25
+xfer 22 26 40807424 via 22 26
+xfer 23 27 54272 via 23 27
+xfer 24 28 238592 via 24 28
+xfer 25 29 65536 via 25 29
+xfer 26 30 365568 via 26 30
+xfer 27 31 51200 via 27 31
+xfer 28 0 41984 via 28 0
+xfer 29 1 123904 via 29 1
+xfer 30 2 91136 via 30 2
+xfer 31 3 69632 via 31 3
+phase  # topo shift 8, offset 8, 1 hops
+edge 0 8
+edge 1 9
+edge 2 10
+edge 3 11
+edge 4 12
+edge 5 13
+edge 6 14
+edge 7 15
+edge 8 16
+edge 9 17
+edge 10 18
+edge 11 19
+edge 12 20
+edge 13 21
+edge 14 22
+edge 15 23
+edge 16 24
+edge 17 25
+edge 18 26
+edge 19 27
+edge 20 28
+edge 21 29
+edge 22 30
+edge 23 31
+edge 24 0
+edge 25 1
+edge 26 2
+edge 27 3
+edge 28 4
+edge 29 5
+edge 30 6
+edge 31 7
+xfer 0 8 47104 via 0 8
+xfer 1 9 279552 via 1 9
+xfer 2 10 4481024 via 2 10
+xfer 3 11 1119232 via 3 11
+xfer 4 12 402432 via 4 12
+xfer 5 13 131072 via 5 13
+xfer 6 14 206848 via 6 14
+xfer 7 15 2518016 via 7 15
+xfer 8 16 332800 via 8 16
+xfer 9 17 82944 via 9 17
+xfer 10 18 107520 via 10 18
+xfer 11 19 505856 via 11 19
+xfer 12 20 157696 via 12 20
+xfer 13 21 75776 via 13 21
+xfer 14 22 824320 via 14 22
+xfer 15 23 46080 via 15 23
+xfer 16 24 179200 via 16 24
+xfer 17 25 1612800 via 17 25
+xfer 18 26 40352768 via 18 26
+xfer 19 27 55296 via 19 27
+xfer 20 28 238592 via 20 28
+xfer 21 29 64512 via 21 29
+xfer 22 30 140288 via 22 30
+xfer 23 31 51200 via 23 31
+xfer 24 0 41984 via 24 0
+xfer 25 1 126976 via 25 1
+xfer 26 2 239616 via 26 2
+xfer 27 3 69632 via 27 3
+xfer 28 4 59392 via 28 4
+xfer 29 5 10078208 via 29 5
+xfer 30 6 629760 via 30 6
+xfer 31 7 38912 via 31 7
+phase  # topo shift 10, offset 10, 1 hops
+edge 0 10
+edge 1 11
+edge 2 12
+edge 3 13
+edge 4 14
+edge 5 15
+edge 6 16
+edge 7 17
+edge 8 18
+edge 9 19
+edge 10 20
+edge 11 21
+edge 12 22
+edge 13 23
+edge 14 24
+edge 15 25
+edge 16 26
+edge 17 27
+edge 18 28
+edge 19 29
+edge 20 30
+edge 21 31
+edge 22 0
+edge 23 1
+edge 24 2
+edge 25 3
+edge 26 4
+edge 27 5
+edge 28 6
+edge 29 7
+edge 30 8
+edge 31 9
+xfer 0 10 4477952 via 0 10
+xfer 1 11 1120256 via 1 11
+xfer 2 12 402432 via 2 12
+xfer 3 13 111616 via 3 13
+xfer 4 14 204800 via 4 14
+xfer 5 15 2977792 via 5 15
+xfer 6 16 335872 via 6 16
+xfer 7 17 82944 via 7 17
+xfer 8 18 100352 via 8 18
+xfer 9 19 498688 via 9 19
+xfer 10 20 167936 via 10 20
+xfer 11 21 76800 via 11 21
+xfer 12 22 826368 via 12 22
+xfer 13 23 44032 via 13 23
+xfer 14 24 179200 via 14 24
+xfer 15 25 1675264 via 15 25
+xfer 16 26 40499200 via 16 26
+xfer 17 27 55296 via 17 27
+xfer 18 28 238592 via 18 28
+xfer 19 29 64512 via 19 29
+xfer 20 30 139264 via 20 30
+xfer 21 31 51200 via 21 31
+xfer 22 0 41984 via 22 0
+xfer 23 1 123904 via 23 1
+xfer 24 2 91136 via 24 2
+xfer 25 3 71680 via 25 3
+xfer 26 4 155648 via 26 4
+xfer 27 5 10077184 via 27 5
+xfer 28 6 630784 via 28 6
+xfer 29 7 38912 via 29 7
+xfer 30 8 47104 via 30 8
+xfer 31 9 279552 via 31 9
+phase  # topo shift 22, offset 22, 1 hops
+edge 0 22
+edge 1 23
+edge 2 24
+edge 3 25
+edge 4 26
+edge 5 27
+edge 6 28
+edge 7 29
+edge 8 30
+edge 9 31
+edge 10 0
+edge 11 1
+edge 12 2
+edge 13 3
+edge 14 4
+edge 15 5
+edge 16 6
+edge 17 7
+edge 18 8
+edge 19 9
+edge 20 10
+edge 21 11
+edge 22 12
+edge 23 13
+edge 24 14
+edge 25 15
+edge 26 16
+edge 27 17
+edge 28 18
+edge 29 19
+edge 30 20
+edge 31 21
+xfer 0 22 822272 via 0 22
+xfer 1 23 44032 via 1 23
+xfer 2 24 179200 via 2 24
+xfer 3 25 1611776 via 3 25
+xfer 4 26 40328192 via 4 26
+xfer 5 27 64512 via 5 27
+xfer 6 28 240640 via 6 28
+xfer 7 29 63488 via 7 29
+xfer 8 30 139264 via 8 30
+xfer 9 31 51200 via 9 31
+xfer 10 0 44032 via 10 0
+xfer 11 1 125952 via 11 1
+xfer 12 2 91136 via 12 2
+xfer 13 3 69632 via 13 3
+xfer 14 4 59392 via 14 4
+xfer 15 5 10473472 via 15 5
+xfer 16 6 631808 via 16 6
+xfer 17 7 38912 via 17 7
+xfer 18 8 47104 via 18 8
+xfer 19 9 281600 via 19 9
+xfer 20 10 4485120 via 20 10
+xfer 21 11 1119232 via 21 11
+xfer 22 12 407552 via 22 12
+xfer 23 13 111616 via 23 13
+xfer 24 14 205824 via 24 14
+xfer 25 15 2580480 via 25 15
+xfer 26 16 874496 via 26 16
+xfer 27 17 82944 via 27 17
+xfer 28 18 100352 via 28 18
+xfer 29 19 497664 via 29 19
+xfer 30 20 156672 via 30 20
+xfer 31 21 75776 via 31 21
+phase  # topo shift 24, offset 24, 1 hops
+edge 0 24
+edge 1 25
+edge 2 26
+edge 3 27
+edge 4 28
+edge 5 29
+edge 6 30
+edge 7 31
+edge 8 0
+edge 9 1
+edge 10 2
+edge 11 3
+edge 12 4
+edge 13 5
+edge 14 6
+edge 15 7
+edge 16 8
+edge 17 9
+edge 18 10
+edge 19 11
+edge 20 12
+edge 21 13
+edge 22 14
+edge 23 15
+edge 24 16
+edge 25 17
+edge 26 18
+edge 27 19
+edge 28 20
+edge 29 21
+edge 30 22
+edge 31 23
+xfer 0 24 178176 via 0 24
+xfer 1 25 1613824 via 1 25
+xfer 2 26 40346624 via 2 26
+xfer 3 27 55296 via 3 27
+xfer 4 28 237568 via 4 28
+xfer 5 29 75776 via 5 29
+xfer 6 30 140288 via 6 30
+xfer 7 31 51200 via 7 31
+xfer 8 0 40960 via 8 0
+xfer 9 1 123904 via 9 1
+xfer 10 2 97280 via 10 2
+xfer 11 3 70656 via 11 3
+xfer 12 4 59392 via 12 4
+xfer 13 5 10085376 via 13 5
+xfer 14 6 630784 via 14 6
+xfer 15 7 39936 via 15 7
+xfer 16 8 48128 via 16 8
+xfer 17 9 279552 via 17 9
+xfer 18 10 4481024 via 18 10
+xfer 19 11 1126400 via 19 11
+xfer 20 12 403456 via 20 12
+xfer 21 13 111616 via 21 13
+xfer 22 14 207872 via 22 14
+xfer 23 15 2518016 via 23 15
+xfer 24 16 332800 via 24 16
+xfer 25 17 84992 via 25 17
+xfer 26 18 264192 via 26 18
+xfer 27 19 496640 via 27 19
+xfer 28 20 157696 via 28 20
+xfer 29 21 75776 via 29 21
+xfer 30 22 823296 via 30 22
+xfer 31 23 44032 via 31 23
+phase  # topo shift 28, offset 28, 1 hops
+edge 0 28
+edge 1 29
+edge 2 30
+edge 3 31
+edge 4 0
+edge 5 1
+edge 6 2
+edge 7 3
+edge 8 4
+edge 9 5
+edge 10 6
+edge 11 7
+edge 12 8
+edge 13 9
+edge 14 10
+edge 15 11
+edge 16 12
+edge 17 13
+edge 18 14
+edge 19 15
+edge 20 16
+edge 21 17
+edge 22 18
+edge 23 19
+edge 24 20
+edge 25 21
+edge 26 22
+edge 27 23
+edge 28 24
+edge 29 25
+edge 30 26
+edge 31 27
+xfer 0 28 237568 via 0 28
+xfer 1 29 64512 via 1 29
+xfer 2 30 139264 via 2 30
+xfer 3 31 51200 via 3 31
+xfer 4 0 40960 via 4 0
+xfer 5 1 146432 via 5 1
+xfer 6 2 92160 via 6 2
+xfer 7 3 69632 via 7 3
+xfer 8 4 59392 via 8 4
+xfer 9 5 10112000 via 9 5
+xfer 10 6 674816 via 10 6
+xfer 11 7 39936 via 11 7
+xfer 12 8 48128 via 12 8
+xfer 13 9 279552 via 13 9
+xfer 14 10 4489216 via 14 10
+xfer 15 11 1163264 via 15 11
+xfer 16 12 404480 via 16 12
+xfer 17 13 111616 via 17 13
+xfer 18 14 204800 via 18 14
+xfer 19 15 2536448 via 19 15
+xfer 20 16 332800 via 20 16
+xfer 21 17 82944 via 21 17
+xfer 22 18 101376 via 22 18
+xfer 23 19 496640 via 23 19
+xfer 24 20 157696 via 24 20
+xfer 25 21 77824 via 25 21
+xfer 26 22 2159616 via 26 22
+xfer 27 23 44032 via 27 23
+xfer 28 24 179200 via 28 24
+xfer 29 25 1611776 via 29 25
+xfer 30 26 40376320 via 30 26
+xfer 31 27 54272 via 31 27

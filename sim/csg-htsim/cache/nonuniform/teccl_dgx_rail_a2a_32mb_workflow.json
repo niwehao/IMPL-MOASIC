@@ -1,0 +1,17 @@
+{
+  "collective": "alltoall",
+  "chunk_size_bytes": 33554432,
+  "num_chunks": 1,
+  "epoch_type": 1,
+  "epoch_multiplier": 16,
+  "num_epochs": 48,
+  "max_auto_num_epochs": 192,
+  "alpha_threshold": 0.1,
+  "switch_copy": false,
+  "switch_to_gpu_link_on": true,
+  "objective_type": 3,
+  "solution_method": 1,
+  "time_limit_hours": 0.15,
+  "gurobi_output_flag": 1,
+  "gurobi_log_to_console": 0
+}

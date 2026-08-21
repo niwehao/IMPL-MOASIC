@@ -1,0 +1,11 @@
+spines,scheme,corridors,validation,completion_us,bound_us
+3,static_ecmp,,PASSED,18243.3,7552
+3,fast_schedule,,PASSED,10126.4,7552
+3,mosaic_implicit,4,PASSED,8464.68,7552
+3,mosaic_explicit,4,PASSED,8393.42,7552
+5,static_ecmp,,PASSED,18253.7,7552
+5,fast_schedule,,PASSED,10126.4,7552
+5,mosaic_implicit,6,PASSED,8720.46,7552
+5,mosaic_explicit,6,PASSED,8486.51,7552
+4,mosaic_implicit,5,PASSED,8347.98,7552
+4,mosaic_explicit,5,PASSED,8903.65,7552

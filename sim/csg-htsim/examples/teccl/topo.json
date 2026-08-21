@@ -1,0 +1,7 @@
+{
+  "name": "regular",
+  "node_count": 16,
+  "degree": 4,
+  "link_rate_gbps": 100,
+  "alpha": 0.0
+}

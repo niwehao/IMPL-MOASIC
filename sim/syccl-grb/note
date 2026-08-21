@@ -1,0 +1,101 @@
+spine不支持4,必须1
+怎么模拟nvlink
+怎么分解
+
+8-Chunk paths:
+      端到端 demand 视图，适合恢复 path fragment 和总数据量
+
+  当前我们已经从 7-Flows 改成用 8-Chunk paths，目的是先让 TECCL 和 basic 的端到端数据量对齐。
+  如果下一步要做“完整 hop 转发 + 每跳 epoch”，就应该基于 8-Chunk paths 里的 path fragment 拆成 hop-level
+  steps，而不是直接用 7-Flows 当 app-level step。
+
+  TECCL 输出里的每一条 hop-flow，都在 htsim 里作为一个受调度控制的真实发送动作执行；中间节点必须等收到
+  fragment，并且等到自己的 local epoch，才能继续转发。
+
+  用一个例子说。
+
+  TECCL raw 里：
+
+  Demand: chunk 0 from 10 to 0
+
+  path A:
+  epoch 5: 10 -> 11, volume 0.666667
+  epoch 6: 11 -> 15, volume 0.666667
+  epoch 7: 15 -> 0,  volume 0.666667
+
+  path B:
+  epoch 5: 10 -> 14, volume 0.333333
+  epoch 6: 14 -> 15, volume 0.333333
+  epoch 7: 15 -> 0,  volume 0.333333
+
+  完整 hop 模型里，htsim 应该这样执行：
+
+  node 10 local epoch 5:
+    如果 fragment A 在 node 10，发送 10 -> 11
+    如果 fragment B 在 node 10，发送 10 -> 14
+
+  node 11 local epoch 6:
+    只有 fragment A 已经到达 node 11，才能发送 11 -> 15
+
+  node 14 local epoch 6:
+    只有 fragment B 已经到达 node 14，才能发送 14 -> 15
+
+  node 15 local epoch 7:
+    fragment A 到了 15 后，发送 15 -> 0
+    fragment B 到了 15 后，发送 15 -> 0
+
+  最后 node 0 收到：
+
+  fragment A: 0.666667 MiB
+  fragment B: 0.333333 MiB
+
+  聚合达到 1MiB，才算：
+
+  chunk 0 from 10 delivered to 0
+
+  需要满足的关键语义
+
+  1. 每一跳都是一个 schedule step
+     不是一整条 path 一个 step。
+
+  2. 每个 step 属于 hop 的 src 节点
+     比如 11 -> 15 属于 node 11 的 local epoch，不属于原始 source 10。
+
+  3. ready 条件是 fragment 到达当前 hop src
+     11 -> 15 不能因为 source 10 有 chunk 就 ready，必须等 fragment A 真正到达 11。
+
+  4. local epoch 仍然是每个节点本地顺序
+     node 11 不关心 node 10 到哪个 epoch。
+     但 node 11 自己必须先完成 epoch 5，才能进 epoch 6。
+
+  5. 等待不是固定时间
+     如果 node 11 到了 epoch 6，但 fragment A 还没到，就等真实网络传输完成。
+
+  6. 中间 hop 到达不算 delivered
+     10 -> 11 完成后，只能标记 fragment A 在 11 可用。
+     不能增加 app-level delivered count。
+
+  7. 最终 dst 聚合 fragments
+     一个 demand 可能拆成多条 path，最终要按 (chunk_source, chunk, final_dst) 聚合 bytes。
+     收齐 chunk_size_bytes 后，才算这个 demand delivered。
+
+  8. deadlock 检查要按 hop dependency
+     如果有 pending hop 不 ready，且没有 in-flight hop 或未来 local epoch 链能让它 ready，才报 deadlock。
+
+  最终效果
+  完整实现后，htsim 运行的就不再是：
+
+  源节点按 TECCL 发一条端到端 explicit path
+
+  而是：
+
+  每个中间节点也按 TECCL schedule 参与转发
+
+  这样才能真正复现 TECCL 的：
+
+  - per-hop epoch
+  - per-hop capacity
+  - chunk/fragment dependency
+  - 中间节点转发时序
+
+  这才是“严格按 TECCL schedule 执行”。

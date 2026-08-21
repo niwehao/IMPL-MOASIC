@@ -1,0 +1,15 @@
+*.o
+*.log
+./*.json
+.idea/
+build/*
+!build/result-*.json
+cmake-build-debug/
+Makefile
+tmp/
+.DS_Store
+.cache/
+CMakeFiles/
+data/
+**/__pycache__/
+.vscode/

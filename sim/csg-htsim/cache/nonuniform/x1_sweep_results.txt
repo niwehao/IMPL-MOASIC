@@ -1,0 +1,5 @@
+nv=2400 ecmp=21829.2 basic=21829.2 fast_guard=3541.18 fast=3596.05 mosaic=3557.32 mosaic_static=3872.21
+nv=720 ecmp=21829.2 basic=21829.2 fast_guard=5067.69 fast=5067.69 mosaic=5110.89 mosaic_static=5192.43
+nv=360 ecmp=21829.2 basic=21829.2 fast_guard=10126.4 fast=10126.4 mosaic=8565.57 mosaic_static=8660.08
+nv=180 ecmp=21829.2 basic=21829.2 fast_guard=20243.8 fast=20243.8 mosaic=12996.6 mosaic_static=12135.8
+nv=90 ecmp=21829.2 basic=21829.2 fast_guard=40478.6 fast=40478.6 mosaic=16367.7 mosaic_static=16036.9

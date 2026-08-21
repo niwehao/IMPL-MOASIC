@@ -1,0 +1,12 @@
+probe_incast1_mosaic_buf128 validation FAILED rounds 1 completion_us 15195.4 queue_drops 142913 
+probe_incast1_fast_buf128 validation FAILED rounds 1 completion_us 21347 queue_drops 1707912 
+probe_incast1_ecmp_buf128 validation FAILED rounds 1 completion_us 21347 queue_drops 1707912 
+probe_incast1_mosaic_buf256 validation FAILED rounds 1 completion_us 26715.8 queue_drops 2279 
+probe_incast1_fast_buf256 validation FAILED rounds 1 completion_us 37285.5 queue_drops 1513350 
+probe_incast1_ecmp_buf256 validation FAILED rounds 1 completion_us 37285.5 queue_drops 1513350 
+probe_incast1_fast_buf512 validation FAILED rounds 1 completion_us 64129.1 queue_drops 1185670 
+probe_incast1_ecmp_buf512 validation FAILED rounds 1 completion_us 64129.1 queue_drops 1185670 
+probe_incast1_mosaic_buf512 validation PASSED rounds 1 completion_us 161289 queue_drops 0 
+probe_incast1_fast_buf2048 validation PASSED rounds 1 completion_us 161239 queue_drops 0 
+probe_incast1_ecmp_buf2048 validation PASSED rounds 1 completion_us 161239 queue_drops 0 
+probe_incast1_mosaic_buf2048 validation PASSED rounds 1 completion_us 161289 queue_drops 0 

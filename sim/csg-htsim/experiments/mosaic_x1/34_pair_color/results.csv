@@ -1,0 +1,35 @@
+point,base_c6_us,pc32_us,pc8_us,guard05_us,fast_us,pc_auto_gate,notes
+uniform_2400,2552.77,2389.11,2416.74,2552.77,2345,K=32(diag_cov 0),pc32 -6.4%; vs FAST 0.92x->0.98x
+uniform_360,2766.11,2503.67,2523.37,2766.11,2622,K=32,pc32 -9.5%; vs FAST 0.95x->1.047x WIN
+persrc_2400,2665.68,2772.43,2674.14,2665.68,2537,K=0(diag_cov 0.237),gate falls back to base
+seed44_2400,3439.12,3494.51,3449.54,,3386,K=32(diag_cov 0.011),+1.6% noise-band loss
+zipf15_2400,5215.17,4924.84,4998.35,,5132,K=32(diag_cov 0.033),pc32 -5.6%; vs FAST 0.98x->1.04x WIN
+zipf10_2400,3525.76,3495.19,3522.43,3530.89,3541.18,K=32(diag_cov 0.012),-0.9%
+zipf10_720,4960.22,4999.86,,,5067.69,K=32,+0.8%
+zipf10_600,5610.43,5717.85,,,5988.27,K=32,+1.9% (only regression >1%)
+zipf10_480,6589.80,6440.78,,,7369.14,K=32,-2.3%
+zipf10_420,7542.22,7293.70,,,8746.16,K=32,-3.3%
+zipf10_360,8418.42,7939.84,8215.34,8418.65,10126.4,K=32,-5.7%
+zipf10_180,12672.7,11935.7,,,20243.8,K=32,-5.8%
+zipf10_90,16276.9,16151.8,,16276.9,40478.6,K=32,-0.8%
+combo_90_pcRP,15567,15527.8,,,,K=32,new SOTA (was C6+R+PACE 15567)
+combo_180_pcRP,11727,11998.7,,,,K=32,pc x R negative at 180 (+2.3%)
+combo_360_pcP,7917,7939.33,,,,K=32,SOTA holds by 0.3%
+combo_420_pcRP,7180,7187.43,,,,K=32,tie (+0.1%)
+combo_480_pcP,6370,6296.02,,,,K=32,new SOTA -1.2%
+combo_600_pcP,5480,5441.00,,,,K=32,new SOTA -0.7%
+combo_720_pcP,4885,4811.71,,,,K=32,new SOTA -1.5%
+combo_2400_pcR,3405,3727.48,,,,K=32,pc x R negative at 2400 (+9.5%); keep C6+R
+isolate_2400_pc_skewepoch2,3525.76,3726.16,,,,K=32,E3 alone reproduces the full pc x R loss (3727)
+isolate_2400_pc_rampcold,3525.76,3495.19,,,,K=32,neutral (= pure pc)
+isolate_2400_pc_rewaterfill,3525.76,3500.98,,,,K=32,neutral
+combo_2400_pc_R_minus_E3,3405,3500.98,,,,K=32,no new SOTA
+combo_180_pc_R2_PACE,11727,12426.6,,,,K=32,no new SOTA
+combo_90_pc_R2_PACE,15528,15830.4,,,,K=32,worse than pc+full-R+PACE
+probe_600_pc8,5610.43,5576.59,,,,K=8,depth rule: 600 loss is coloring depth (K8 -0.6% / K16 +1.1% / K32 +1.9%)
+probe_600_pc16,5610.43,5670.77,,,,K=16,monotone in K
+probe_600_pc8_PACE,5480,5568.61,,,,K=8,no new SOTA; 600 keeps C6+PACE
+wiring_pod_S4u720_pc,8347.98,8077.34,,,,K=32,new pod SOTA (was C5+R 8210); base reproduces 22-group 8348
+wiring_pod_pc_R,8210,8133.73,,,,K=32,pc+R worse than pc alone (E3 conflict consistent)
+wiring_rail2p_2400_pc,6349.25,6462.03,,,,K=32,negative +1.8%; rule: no PC on rail2p
+wiring_cube_mix_pc,4134.6,4138.4,,,,K=32,neutral +0.1%

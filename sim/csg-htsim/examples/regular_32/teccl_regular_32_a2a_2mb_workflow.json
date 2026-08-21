@@ -1,0 +1,11 @@
+{
+  "collective": "alltoall",
+  "chunk_size_bytes": 2097152,
+  "num_chunks": 1,
+  "num_epochs": 32,
+  "epoch_multiplier": 1,
+  "solution_method": 1,
+  "switch_copy": false,
+  "switch_to_gpu_link_on": true,
+  "time_limit_hours": 0.15
+}

@@ -1,0 +1,34 @@
+# switch-centric demand: incast m=1 budget=65011712B granularity=1024B
+# max_pair_bytes 65011712 padded_pow2_bytes 67108864
+node_count 32
+demand 1 0 65011712
+demand 2 0 65011712
+demand 3 0 65011712
+demand 4 0 65011712
+demand 5 0 65011712
+demand 6 0 65011712
+demand 7 0 65011712
+demand 8 0 65011712
+demand 9 0 65011712
+demand 10 0 65011712
+demand 11 0 65011712
+demand 12 0 65011712
+demand 13 0 65011712
+demand 14 0 65011712
+demand 15 0 65011712
+demand 16 0 65011712
+demand 17 0 65011712
+demand 18 0 65011712
+demand 19 0 65011712
+demand 20 0 65011712
+demand 21 0 65011712
+demand 22 0 65011712
+demand 23 0 65011712
+demand 24 0 65011712
+demand 25 0 65011712
+demand 26 0 65011712
+demand 27 0 65011712
+demand 28 0 65011712
+demand 29 0 65011712
+demand 30 0 65011712
+demand 31 0 65011712

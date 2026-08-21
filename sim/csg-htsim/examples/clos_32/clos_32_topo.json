@@ -1,0 +1,9 @@
+{
+  "name": "clos",
+  "node_count": 32,
+  "leaf_count": 4,
+  "spine_count": 1,
+  "link_rate_gbps": 100,
+  "uplink_gbps": 400,
+  "alpha": 5e-06
+}

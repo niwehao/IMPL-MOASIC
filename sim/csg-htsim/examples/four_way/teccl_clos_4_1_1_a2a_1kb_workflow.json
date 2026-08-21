@@ -1,0 +1,16 @@
+{
+  "collective": "alltoall",
+  "chunk_size_bytes": 1024,
+  "num_chunks": 1,
+  "num_epochs": 4,
+  "max_auto_num_epochs": 64,
+  "epoch_growth_factor": 2,
+  "epoch_type": 1,
+  "epoch_multiplier": 1,
+  "solution_method": 1,
+  "objective_type": 3,
+  "switch_copy": true,
+  "time_limit_hours": 0.02,
+  "gurobi_output_flag": 0,
+  "gurobi_log_to_console": 0
+}

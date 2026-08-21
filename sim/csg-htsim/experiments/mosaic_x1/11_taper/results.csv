@@ -1,0 +1,10 @@
+label,nodes,nv,taper,scheduler,completion_us,p99_us,status
+taper90,32,360,90,static_ecmp,43558.2,40114.6,PASSED
+taper90,32,360,90,fast_schedule,10126.4,7168.76,PASSED
+taper90,32,360,90,mosaic_schedule,8475.28,6263.23,PASSED
+taper180,32,360,180,static_ecmp,21829.2,20107.3,PASSED
+taper180,32,360,180,fast_schedule,10126.4,7168.76,PASSED
+taper180,32,360,180,mosaic_schedule,8565.57,6012.74,PASSED
+taper360,32,360,360,static_ecmp,17845.4,16123.5,PASSED
+taper360,32,360,360,fast_schedule,10126.4,7168.76,PASSED
+taper360,32,360,360,mosaic_schedule,8895.68,5964.07,PASSED

@@ -1,0 +1,1 @@
+{"name": "flex_cube", "node_count": 32, "nic_gbps": 180.0, "taper_gbps": 180.0, "speeds": "400x6,200x6,100x4", "rot": 0, "link_delay_us": 0.7}

@@ -1,0 +1,3 @@
+nv=2400 prior+adapt=3557.32 prior+static=3872.21 uniform+adapt=3742.73 uniform+static=9448.61
+nv=180 prior+adapt=12996.6 prior+static=12135.8 uniform+adapt=13434.2 uniform+static=14697.9
+nv=90 prior+adapt=16367.7 prior+static=16036.9 uniform+adapt=19123.4 uniform+static=29364.5

@@ -1,0 +1,412 @@
+cell,scheme,completion_us,source
+main_nv2400,bound,3327,tools/x1_bounds.py + archives
+main_nv720,bound,4532,tools/x1_bounds.py + archives
+main_nv600,bound,5229,tools/x1_bounds.py + archives
+main_nv480,bound,6181,tools/x1_bounds.py + archives
+main_nv420,bound,6798,tools/x1_bounds.py + archives
+main_nv360,bound,7556,tools/x1_bounds.py + archives
+main_nv180,bound,11330,tools/x1_bounds.py + archives
+main_nv90,bound,15105,tools/x1_bounds.py + archives
+seed43_nv2400,bound,4048,tools/x1_bounds.py + archives
+seed43_nv360,bound,7552,tools/x1_bounds.py + archives
+seed43_nv90,bound,15104,tools/x1_bounds.py + archives
+seed44_nv2400,bound,3270,tools/x1_bounds.py + archives
+seed44_nv360,bound,7552,tools/x1_bounds.py + archives
+seed44_nv90,bound,15104,tools/x1_bounds.py + archives
+zipf0.5_nv2400,bound,2525,tools/x1_bounds.py + archives
+zipf0.5_nv360,bound,3101,tools/x1_bounds.py + archives
+zipf0.5_nv90,bound,6201,tools/x1_bounds.py + archives
+zipf1.5_nv2400,bound,4562,tools/x1_bounds.py + archives
+zipf1.5_nv360,bound,13466,tools/x1_bounds.py + archives
+zipf1.5_nv90,bound,26932,tools/x1_bounds.py + archives
+zipf2.0_nv2400,bound,5774,tools/x1_bounds.py + archives
+zipf2.0_nv360,bound,18753,tools/x1_bounds.py + archives
+zipf2.0_nv90,bound,37505,tools/x1_bounds.py + archives
+persrc_nv2400,bound,2372,tools/x1_bounds.py + archives
+persrc_nv360,bound,2372,tools/x1_bounds.py + archives
+persrc_nv90,bound,4704,tools/x1_bounds.py + archives
+uniform_nv2400,bound,2133,tools/x1_bounds.py + archives
+uniform_nv360,bound,2133,tools/x1_bounds.py + archives
+uniform_nv90,bound,2133,tools/x1_bounds.py + archives
+khot2_nv360,bound,5351,tools/x1_bounds.py + archives
+khot2_nv90,bound,10703,tools/x1_bounds.py + archives
+khot4_nv360,bound,4104,tools/x1_bounds.py + archives
+khot4_nv90,bound,8208,tools/x1_bounds.py + archives
+khot8_nv360,bound,2941,tools/x1_bounds.py + archives
+khot8_nv90,bound,5621,tools/x1_bounds.py + archives
+m512k_nv360,bound,1893,tools/x1_bounds.py + archives
+m512k_nv90,bound,3786,tools/x1_bounds.py + archives
+m8m_nv360,bound,30188,tools/x1_bounds.py + archives
+m8m_nv90,bound,60375,tools/x1_bounds.py + archives
+shape8x4_nv2400,bound,6668,tools/x1_bounds.py + archives
+shape8x4_nv360,bound,7552,tools/x1_bounds.py + archives
+shape8x4_nv90,bound,15104,tools/x1_bounds.py + archives
+shape2x16_nv2400,bound,1581,tools/x1_bounds.py + archives
+shape2x16_nv360,bound,7552,tools/x1_bounds.py + archives
+shape2x16_nv90,bound,21773,tools/x1_bounds.py + archives
+n64_nv2400,bound,7217,tools/x1_bounds.py + archives
+n64_nv360,bound,12977,tools/x1_bounds.py + archives
+pod_nv2400_up720,bound,6654,tools/x1_bounds.py + archives
+pod_nv360_up720,bound,7552,tools/x1_bounds.py + archives
+pod_nv360_up360,bound,13309,tools/x1_bounds.py + archives
+pod_nv90_up720,bound,15104,tools/x1_bounds.py + archives
+deghot2_nv2400,bound,3549,tools/x1_bounds.py + archives
+deghot4_nv2400,bound,3671,tools/x1_bounds.py + archives
+degcold2_nv2400,bound,3327,tools/x1_bounds.py + archives
+degcold4_nv2400,bound,3327,tools/x1_bounds.py + archives
+deghot2_nv360,bound,9063,tools/x1_bounds.py + archives
+deghot4_nv360,bound,10069,tools/x1_bounds.py + archives
+degcold2_nv360,bound,7552,tools/x1_bounds.py + archives
+degcold4_nv360,bound,7552,tools/x1_bounds.py + archives
+utaper_nv2400_tp90,bound,2133,tools/x1_bounds.py + archives
+utaper_nv2400_tp60,bound,2133,tools/x1_bounds.py + archives
+utaper_nv360_tp90,bound,2133,tools/x1_bounds.py + archives
+utaper_nv360_tp60,bound,2133,tools/x1_bounds.py + archives
+ntaper_nv360_tp90,bound,7556,tools/x1_bounds.py + archives
+ntaper_nv360_tp360,bound,7556,tools/x1_bounds.py + archives
+drift_fresh_nv360,bound,2372,tools/x1_bounds.py + archives
+drift_stale_nv360,bound,2372,tools/x1_bounds.py + archives
+main_nv2400,fast,3418.8,21/33/04/15/09/10/20/22/19/14 archives
+main_nv720,fast,5068,21/33/04/15/09/10/20/22/19/14 archives
+main_nv600,fast,5988,21/33/04/15/09/10/20/22/19/14 archives
+main_nv480,fast,7369,21/33/04/15/09/10/20/22/19/14 archives
+main_nv420,fast,8746,21/33/04/15/09/10/20/22/19/14 archives
+main_nv360,fast,10126,21/33/04/15/09/10/20/22/19/14 archives
+main_nv180,fast,20244,21/33/04/15/09/10/20/22/19/14 archives
+main_nv90,fast,40479,21/33/04/15/09/10/20/22/19/14 archives
+seed43_nv2400,fast,4245,21/33/04/15/09/10/20/22/19/14 archives
+seed43_nv360,fast,10163,21/33/04/15/09/10/20/22/19/14 archives
+seed43_nv90,fast,40626,21/33/04/15/09/10/20/22/19/14 archives
+seed44_nv2400,fast,3386,21/33/04/15/09/10/20/22/19/14 archives
+seed44_nv360,fast,10152,21/33/04/15/09/10/20/22/19/14 archives
+seed44_nv90,fast,40582,21/33/04/15/09/10/20/22/19/14 archives
+zipf0.5_nv2400,fast,2697,21/33/04/15/09/10/20/22/19/14 archives
+zipf0.5_nv360,fast,4169,21/33/04/15/09/10/20/22/19/14 archives
+zipf0.5_nv90,fast,16647,21/33/04/15/09/10/20/22/19/14 archives
+zipf1.5_nv2400,fast,5132,21/33/04/15/09/10/20/22/19/14 archives
+zipf1.5_nv360,fast,18043,21/33/04/15/09/10/20/22/19/14 archives
+zipf1.5_nv90,fast,72145,21/33/04/15/09/10/20/22/19/14 archives
+zipf2.0_nv2400,fast,7711,21/33/04/15/09/10/20/22/19/14 archives
+zipf2.0_nv360,fast,25119,21/33/04/15/09/10/20/22/19/14 archives
+zipf2.0_nv90,fast,100459,21/33/04/15/09/10/20/22/19/14 archives
+persrc_nv2400,fast,2537,21/33/04/15/09/10/20/22/19/14 archives
+persrc_nv360,fast,3178,21/33/04/15/09/10/20/22/19/14 archives
+persrc_nv90,fast,9585,21/33/04/15/09/10/20/22/19/14 archives
+uniform_nv2400,fast,2345,21/33/04/15/09/10/20/22/19/14 archives
+uniform_nv360,fast,2622,21/33/04/15/09/10/20/22/19/14 archives
+uniform_nv90,fast,5229,21/33/04/15/09/10/20/22/19/14 archives
+khot2_nv360,fast,7193.55,21/33/04/15/09/10/20/22/19/14 archives
+khot2_nv90,fast,28747.2,21/33/04/15/09/10/20/22/19/14 archives
+khot4_nv360,fast,6047.45,21/33/04/15/09/10/20/22/19/14 archives
+khot4_nv90,fast,22102.1,21/33/04/15/09/10/20/22/19/14 archives
+khot8_nv360,fast,4645.25,21/33/04/15/09/10/20/22/19/14 archives
+khot8_nv90,fast,15164.6,21/33/04/15/09/10/20/22/19/14 archives
+m512k_nv360,fast,2545.02,21/33/04/15/09/10/20/22/19/14 archives
+m512k_nv90,fast,10153.1,21/33/04/15/09/10/20/22/19/14 archives
+m8m_nv360,fast,37918.5,21/33/04/15/09/10/20/22/19/14 archives
+m8m_nv90,fast,128990,21/33/04/15/09/10/20/22/19/14 archives
+shape8x4_nv2400,fast,7900.56,21/33/04/15/09/10/20/22/19/14 archives
+shape8x4_nv360,fast,9075.89,21/33/04/15/09/10/20/22/19/14 archives
+shape8x4_nv90,fast,34690.4,21/33/04/15/09/10/20/22/19/14 archives
+shape2x16_nv2400,fast,2341.08,21/33/04/15/09/10/20/22/19/14 archives
+shape2x16_nv360,fast,10842.3,21/33/04/15/09/10/20/22/19/14 archives
+shape2x16_nv90,fast,43342.1,21/33/04/15/09/10/20/22/19/14 archives
+pod_nv2400_up720,fast,13397,21/33/04/15/09/10/20/22/19/14 archives
+pod_nv360_up720,fast,14629,21/33/04/15/09/10/20/22/19/14 archives
+pod_nv360_up360,fast,27686,21/33/04/15/09/10/20/22/19/14 archives
+pod_nv90_up720,fast,40479,21/33/04/15/09/10/20/22/19/14 archives
+deghot2_nv2400,fast,6864.4,21/33/04/15/09/10/20/22/19/14 archives
+deghot4_nv2400,fast,13300.5,21/33/04/15/09/10/20/22/19/14 archives
+degcold2_nv2400,fast,4703.18,21/33/04/15/09/10/20/22/19/14 archives
+degcold4_nv2400,fast,9356.32,21/33/04/15/09/10/20/22/19/14 archives
+deghot2_nv360,fast,10126.4,21/33/04/15/09/10/20/22/19/14 archives
+deghot4_nv360,fast,13300.5,21/33/04/15/09/10/20/22/19/14 archives
+degcold2_nv360,fast,10126.4,21/33/04/15/09/10/20/22/19/14 archives
+degcold4_nv360,fast,10126.4,21/33/04/15/09/10/20/22/19/14 archives
+utaper_nv2400_tp90,fast,2344.85,21/33/04/15/09/10/20/22/19/14 archives
+utaper_nv2400_tp60,fast,2344.85,21/33/04/15/09/10/20/22/19/14 archives
+utaper_nv360_tp90,fast,2622.38,21/33/04/15/09/10/20/22/19/14 archives
+utaper_nv360_tp60,fast,2622.38,21/33/04/15/09/10/20/22/19/14 archives
+main_nv2400,ecmp,21829,01/13 archives
+main_nv720,ecmp,21829,01/13 archives
+main_nv600,ecmp,21829,01/13 archives
+main_nv480,ecmp,21829,01/13 archives
+main_nv420,ecmp,21829,01/13 archives
+main_nv360,ecmp,21829,01/13 archives
+main_nv180,ecmp,21829,01/13 archives
+main_nv90,ecmp,21829,01/13 archives
+utaper_nv2400_tp90,ecmp,15605,14 archives
+utaper_nv2400_tp60,ecmp,23533,14 archives
+utaper_nv360_tp90,ecmp,15605,14 archives
+utaper_nv360_tp60,ecmp,23533,14 archives
+main_nv2400,mosaic_u38,3506.2,SOTA.md/x21_v1_robust
+main_nv720,mosaic_u38,4812,SOTA.md/x21_v1_robust
+main_nv600,mosaic_u38,5441,SOTA.md/x21_v1_robust
+main_nv480,mosaic_u38,6296,SOTA.md/x21_v1_robust
+main_nv420,mosaic_u38,7138.3,SOTA.md/x21_v1_robust
+main_nv360,mosaic_u38,7939.3,SOTA.md/x21_v1_robust
+main_nv180,mosaic_u38,11711.1,SOTA.md/x21_v1_robust
+main_nv90,mosaic_u38,15749.4,SOTA.md/x21_v1_robust
+zipf0.5_nv2400,mosaic_u38,2644.33,SOTA.md/x21_v1_robust
+zipf0.5_nv360,mosaic_u38,3755.42,SOTA.md/x21_v1_robust
+zipf0.5_nv90,mosaic_u38,7592.45,SOTA.md/x21_v1_robust
+zipf1.5_nv2400,mosaic_u38,5215.17,SOTA.md/x21_v1_robust
+zipf1.5_nv360,mosaic_u38,14229.4,SOTA.md/x21_v1_robust
+zipf2.0_nv2400,mosaic_u38,6824.14,SOTA.md/x21_v1_robust
+zipf2.0_nv360,mosaic_u38,19369.2,SOTA.md/x21_v1_robust
+zipf2.0_nv90,mosaic_u38,38118.1,SOTA.md/x21_v1_robust
+persrc_nv2400,mosaic_u38,2665.68,SOTA.md/x21_v1_robust
+persrc_nv360,mosaic_u38,2609.27,SOTA.md/x21_v1_robust
+persrc_nv90,mosaic_u38,6519.24,SOTA.md/x21_v1_robust
+uniform_nv2400,mosaic_u38,2552.77,SOTA.md/x21_v1_robust
+uniform_nv360,mosaic_u38,2766.11,SOTA.md/x21_v1_robust
+uniform_nv90,mosaic_u38,4502.25,SOTA.md/x21_v1_robust
+khot2_nv90,mosaic_u38,11681,SOTA.md/x21_v1_robust
+khot4_nv90,mosaic_u38,10249.9,SOTA.md/x21_v1_robust
+khot8_nv90,mosaic_u38,7285.56,SOTA.md/x21_v1_robust
+ntaper_nv360_tp90,mosaic_u38,8211.98,SOTA.md/x21_v1_robust
+ntaper_nv360_tp360,mosaic_u38,8674.99,SOTA.md/x21_v1_robust
+khot2_nv360,mosaic_u38,5874.67,"x41_gate.log(fresh,frozen)"
+khot4_nv360,mosaic_u38,4990.77,"x41_gate.log(fresh,frozen)"
+khot8_nv360,mosaic_u38,3750.6,"x41_gate.log(fresh,frozen)"
+m512k_nv360,mosaic_u38,2127.41,"x41_gate.log(fresh,frozen)"
+m8m_nv360,mosaic_u38,31577.3,"x41_gate.log(fresh,frozen)"
+m512k_nv90,mosaic_u38,4055.51,"x41_gate.log(fresh,frozen)"
+m8m_nv90,mosaic_u38,63032.3,"x41_gate.log(fresh,frozen)"
+shape8x4_nv2400,mosaic_u38,7339.6,"x41_gate.log(fresh,frozen)"
+shape2x16_nv2400,mosaic_u38,1890.52,"x41_gate.log(fresh,frozen)"
+shape8x4_nv360,mosaic_u38,8572.44,"x41_gate.log(fresh,frozen)"
+shape2x16_nv360,mosaic_u38,7848.14,"x41_gate.log(fresh,frozen)"
+shape8x4_nv90,mosaic_u38,15913.9,"x41_gate.log(fresh,frozen)"
+shape2x16_nv90,mosaic_u38,24138.9,"x41_gate.log(fresh,frozen)"
+n64_nv2400,mosaic_u38,7929.15,"x41_gate.log(fresh,frozen)"
+n64_nv360,mosaic_u38,14308.3,"x41_gate.log(fresh,frozen)"
+pod_nv360_up360,mosaic_u38,13840.3,"x41_gate.log(fresh,frozen)"
+pod_nv90_up720,mosaic_u38,15444.5,"x41_gate.log(fresh,frozen)"
+seed43_nv2400,mosaic_u38,4252.22,"x41_gate.log(fresh,frozen)"
+seed43_nv360,mosaic_u38,8294.21,"x41_gate.log(fresh,frozen)"
+seed43_nv90,mosaic_u38,15388.6,"x41_gate.log(fresh,frozen)"
+seed44_nv2400,mosaic_u38,3494.42,"x41_gate.log(fresh,frozen)"
+seed44_nv360,mosaic_u38,7954.65,"x41_gate.log(fresh,frozen)"
+seed44_nv90,mosaic_u38,15373.3,"x41_gate.log(fresh,frozen)"
+pod_nv360_up720,mosaic_u38,8077.3,34_pair_color(PC SOTA)
+pod_nv2400_up720,mosaic_u38,6788.0,22_x2_pod
+deghot2_nv2400,mosaic_c4,4669.21,19_degraded_nic
+deghot4_nv2400,mosaic_c4,9253.09,19_degraded_nic
+degcold2_nv2400,mosaic_c4,4540.18,19_degraded_nic
+degcold4_nv2400,mosaic_c4,9007.39,19_degraded_nic
+deghot2_nv360,mosaic_c4,10194.4,19_degraded_nic
+deghot4_nv360,mosaic_c4,13759.5,19_degraded_nic
+degcold2_nv360,mosaic_c4,8567.15,19_degraded_nic
+degcold4_nv360,mosaic_c4,8334.54,19_degraded_nic
+deghot4_nv2400,mosaic_u38,8892.0,report6.12(C6)
+utaper_nv2400_tp90,mosaic_c4,2715.32,14_uniform_congestion
+utaper_nv2400_tp60,mosaic_c4,3164.35,14_uniform_congestion
+utaper_nv360_tp90,mosaic_c4,3029.72,14_uniform_congestion
+utaper_nv360_tp60,mosaic_c4,2864.48,14_uniform_congestion
+utaper_nv2400_tp90,mosaic_u38,2589.07,"x41_ledger.log(fresh,frozen)"
+utaper_nv2400_tp60,mosaic_u38,2966.61,"x41_ledger.log(fresh,frozen)"
+utaper_nv360_tp90,mosaic_u38,2734.51,"x41_ledger.log(fresh,frozen)"
+utaper_nv360_tp60,mosaic_u38,2656.96,"x41_ledger.log(fresh,frozen)"
+zipf1.5_nv90,mosaic_u38,27608.4,"x41_ledger.log(fresh,frozen)"
+main_nv2400,u2_oracle_ref,3413.64,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+main_nv720,u2_oracle_ref,4650.54,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+main_nv600,u2_oracle_ref,5350.52,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+main_nv480,u2_oracle_ref,6253.21,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+main_nv420,u2_oracle_ref,7077.37,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+main_nv360,u2_oracle_ref,7907.21,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+main_nv180,u2_oracle_ref,11718.3,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+main_nv90,u2_oracle_ref,16571.7,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+seed43_nv2400,u2_oracle_ref,4106.46,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+seed43_nv360,u2_oracle_ref,7794.45,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+seed43_nv90,u2_oracle_ref,16399.8,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+seed44_nv2400,u2_oracle_ref,3369.5,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+seed44_nv360,u2_oracle_ref,7926.28,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+seed44_nv90,u2_oracle_ref,15591.6,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+zipf0.5_nv2400,u2_oracle_ref,2624.96,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+zipf0.5_nv360,u2_oracle_ref,3444.38,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+zipf0.5_nv90,u2_oracle_ref,7007.28,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+zipf1.5_nv2400,u2_oracle_ref,4686.23,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+zipf1.5_nv360,u2_oracle_ref,13700.1,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+zipf1.5_nv90,u2_oracle_ref,29068.5,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+zipf2.0_nv2400,u2_oracle_ref,5909.23,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+zipf2.0_nv360,u2_oracle_ref,19093.3,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+zipf2.0_nv90,u2_oracle_ref,40425.1,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+persrc_nv2400,u2_oracle_ref,2465.54,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+uniform_nv2400,u2_oracle_ref,2420.4,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+persrc_nv360,u2_oracle_ref,2532.06,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+uniform_nv360,u2_oracle_ref,2408.08,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+persrc_nv90,u2_oracle_ref,5163.98,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+uniform_nv90,u2_oracle_ref,3991.24,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+khot2_nv360,u2_oracle_ref,5513.93,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+khot2_nv90,u2_oracle_ref,11781.6,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+khot4_nv360,u2_oracle_ref,4451.69,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+khot4_nv90,u2_oracle_ref,9678.66,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+khot8_nv360,u2_oracle_ref,3355.71,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+khot8_nv90,u2_oracle_ref,6847.61,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+m512k_nv360,u2_oracle_ref,2047.74,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+m8m_nv360,u2_oracle_ref,31099.8,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+m512k_nv90,u2_oracle_ref,4149.2,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+m8m_nv90,u2_oracle_ref,66296.3,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+shape8x4_nv2400,u2_oracle_ref,6774.54,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+shape2x16_nv2400,u2_oracle_ref,1718.83,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+shape8x4_nv360,u2_oracle_ref,8040.63,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+shape2x16_nv360,u2_oracle_ref,8445.43,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+shape8x4_nv90,u2_oracle_ref,15526.0,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+shape2x16_nv90,u2_oracle_ref,23362.7,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+n64_nv2400,u2_oracle_ref,7275.78,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+n64_nv360,u2_oracle_ref,13347.6,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+pod_nv2400_up720,u2_oracle_ref,6755.85,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+pod_nv360_up720,u2_oracle_ref,8022.57,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+pod_nv360_up360,u2_oracle_ref,13663.8,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+pod_nv90_up720,u2_oracle_ref,16504.6,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+deghot2_nv2400,u2_oracle_ref,4054.41,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+degcold2_nv2400,u2_oracle_ref,3445.48,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+deghot4_nv2400,u2_oracle_ref,3966.4,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+degcold4_nv2400,u2_oracle_ref,3507.45,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+deghot2_nv360,u2_oracle_ref,9164.69,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+degcold2_nv360,u2_oracle_ref,7948.02,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+deghot4_nv360,u2_oracle_ref,13152.0,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+degcold4_nv360,u2_oracle_ref,7854.51,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+utaper_nv2400_tp90,u2_oracle_ref,2395.66,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+utaper_nv2400_tp60,u2_oracle_ref,2375.4,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+utaper_nv360_tp90,u2_oracle_ref,2395.71,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+utaper_nv360_tp60,u2_oracle_ref,2384.33,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+ntaper_nv360_tp90,u2_oracle_ref,7863.88,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+ntaper_nv360_tp360,u2_oracle_ref,7923.48,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+drift_fresh_nv360,u2_oracle_ref,2532.06,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+drift_stale_nv360,u2_oracle_ref,2532.06,"bench_sota_u2.log;oracle-sync,reference-only(x42)"
+main_nv2400,u2r_replay_ref,3400.62,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+main_nv720,u2r_replay_ref,4683.1,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+main_nv600,u2r_replay_ref,5400.86,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+main_nv480,u2r_replay_ref,6298.81,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+main_nv420,u2r_replay_ref,7195.62,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+main_nv360,u2r_replay_ref,7818.46,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+main_nv180,u2r_replay_ref,11948.2,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+main_nv90,u2r_replay_ref,16782.5,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+seed43_nv2400,u2r_replay_ref,4102.76,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+seed43_nv360,u2r_replay_ref,8010.5,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+seed43_nv90,u2r_replay_ref,17297.5,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+seed44_nv2400,u2r_replay_ref,3341.12,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+seed44_nv360,u2r_replay_ref,7644.02,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+seed44_nv90,u2r_replay_ref,15463.3,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+zipf0.5_nv2400,u2r_replay_ref,2652.46,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+zipf0.5_nv360,u2r_replay_ref,3538.1,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+zipf0.5_nv90,u2r_replay_ref,7026.78,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+zipf1.5_nv2400,u2r_replay_ref,4655.73,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+zipf1.5_nv360,u2r_replay_ref,13973.2,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+zipf1.5_nv90,u2r_replay_ref,29898.4,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+zipf2.0_nv2400,u2r_replay_ref,5856.52,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+zipf2.0_nv360,u2r_replay_ref,19504.5,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+zipf2.0_nv90,u2r_replay_ref,42119.1,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+persrc_nv2400,u2r_replay_ref,2491.36,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+uniform_nv2400,u2r_replay_ref,2473.25,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+persrc_nv360,u2r_replay_ref,2534.62,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+uniform_nv360,u2r_replay_ref,2464.14,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+persrc_nv90,u2r_replay_ref,4874.68,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+uniform_nv90,u2r_replay_ref,3864.16,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+khot2_nv360,u2r_replay_ref,5685.99,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+khot2_nv90,u2r_replay_ref,11648.0,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+khot4_nv360,u2r_replay_ref,4424.69,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+khot4_nv90,u2r_replay_ref,9623.87,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+khot8_nv360,u2r_replay_ref,3368.23,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+khot8_nv90,u2r_replay_ref,6786.16,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+m512k_nv360,u2r_replay_ref,2111.44,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+m8m_nv360,u2r_replay_ref,31294.0,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+m512k_nv90,u2r_replay_ref,5066.24,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+m8m_nv90,u2r_replay_ref,67069.6,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+shape8x4_nv2400,u2r_replay_ref,6727.08,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+shape2x16_nv2400,u2r_replay_ref,1728.65,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+shape8x4_nv360,u2r_replay_ref,8382.31,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+shape2x16_nv360,u2r_replay_ref,8733.37,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+shape8x4_nv90,u2r_replay_ref,15353.2,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+shape2x16_nv90,u2r_replay_ref,23034.7,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+n64_nv2400,u2r_replay_ref,7311.39,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+n64_nv360,u2r_replay_ref,13244.8,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+pod_nv2400_up720,u2r_replay_ref,6884.79,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+pod_nv360_up720,u2r_replay_ref,7977.75,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+pod_nv360_up360,u2r_replay_ref,13619.5,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+pod_nv90_up720,u2r_replay_ref,17431.1,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+deghot2_nv2400,u2r_replay_ref,4228.18,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+degcold2_nv2400,u2r_replay_ref,3407.84,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+deghot4_nv2400,u2r_replay_ref,3924.17,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+degcold4_nv2400,u2r_replay_ref,3798.19,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+deghot2_nv360,u2r_replay_ref,9556.43,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+degcold2_nv360,u2r_replay_ref,8138.37,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+deghot4_nv360,u2r_replay_ref,13907.9,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+degcold4_nv360,u2r_replay_ref,8081.48,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+utaper_nv2400_tp90,u2r_replay_ref,2427.59,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+utaper_nv2400_tp60,u2r_replay_ref,2410.58,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+utaper_nv360_tp90,u2r_replay_ref,2451.52,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+utaper_nv360_tp60,u2r_replay_ref,2448.36,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+ntaper_nv360_tp90,u2r_replay_ref,7981.15,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+ntaper_nv360_tp360,u2r_replay_ref,8420.92,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+drift_fresh_nv360,u2r_replay_ref,2534.62,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+drift_stale_nv360,u2r_replay_ref,2534.62,"bench_sota_u2r.log (x44: replay falsified, reference only)"
+main_nv2400,sota_u2,3393.33,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+main_nv720,sota_u2,4754.23,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+main_nv600,sota_u2,5490.34,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+main_nv480,sota_u2,6436.01,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+main_nv420,sota_u2,7271.35,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+main_nv360,sota_u2,7955.75,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+main_nv180,sota_u2,11866.6,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+main_nv90,sota_u2,16773.3,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+seed43_nv2400,sota_u2,4144.96,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+seed43_nv360,sota_u2,7982.59,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+seed43_nv90,sota_u2,16816.6,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+seed44_nv2400,sota_u2,3346.41,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+seed44_nv360,sota_u2,8305.97,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+seed44_nv90,sota_u2,15357.6,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+zipf0.5_nv2400,sota_u2,2630.43,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+zipf0.5_nv360,sota_u2,3543.47,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+zipf0.5_nv90,sota_u2,7149.77,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+zipf1.5_nv2400,sota_u2,4647.16,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+zipf1.5_nv360,sota_u2,13731.6,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+zipf1.5_nv90,sota_u2,29841.3,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+zipf2.0_nv2400,sota_u2,5888.13,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+zipf2.0_nv360,sota_u2,19489.4,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+zipf2.0_nv90,sota_u2,41403.6,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+persrc_nv2400,sota_u2,2480.4,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+uniform_nv2400,sota_u2,2432.26,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+persrc_nv360,sota_u2,2553.17,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+uniform_nv360,sota_u2,2431.16,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+persrc_nv90,sota_u2,5265.92,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+uniform_nv90,sota_u2,4111.21,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+khot2_nv360,sota_u2,5859.72,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+khot2_nv90,sota_u2,11994.5,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+khot4_nv360,sota_u2,4519.75,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+khot4_nv90,sota_u2,10110.1,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+khot8_nv360,sota_u2,3422.99,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+khot8_nv90,sota_u2,6746.46,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+m512k_nv360,sota_u2,2173.7,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+m8m_nv360,sota_u2,31526.7,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+m512k_nv90,sota_u2,4588.4,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+m8m_nv90,sota_u2,66744.5,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+shape8x4_nv2400,sota_u2,6716.64,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+shape2x16_nv2400,sota_u2,1716.24,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+shape8x4_nv360,sota_u2,8573.07,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+shape2x16_nv360,sota_u2,8801.78,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+shape8x4_nv90,sota_u2,15364.2,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+shape2x16_nv90,sota_u2,22837.3,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+n64_nv2400,sota_u2,7297.19,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+n64_nv360,sota_u2,13238.4,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+pod_nv2400_up720,sota_u2,6766.02,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+pod_nv360_up720,sota_u2,8181.23,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+pod_nv360_up360,sota_u2,13568.2,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+pod_nv90_up720,sota_u2,16969.6,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+deghot2_nv2400,sota_u2,4076.27,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+degcold2_nv2400,sota_u2,3395.81,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+deghot4_nv2400,sota_u2,4131.58,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+degcold4_nv2400,sota_u2,3443.6,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+deghot2_nv360,sota_u2,9357.29,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+degcold2_nv360,sota_u2,7887.54,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+deghot4_nv360,sota_u2,13977.6,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+degcold4_nv360,sota_u2,7837.13,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+utaper_nv2400_tp90,sota_u2,2449.59,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+utaper_nv2400_tp60,sota_u2,2413.77,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+utaper_nv360_tp90,sota_u2,2450.77,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+utaper_nv360_tp60,sota_u2,2395.81,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+ntaper_nv360_tp90,sota_u2,8006.53,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+ntaper_nv360_tp360,sota_u2,8381.24,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+drift_fresh_nv360,sota_u2,2553.17,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"
+drift_stale_nv360,sota_u2,2553.17,"x44 MOSAIC-U2b (bench_u2bl.log, channels A+B + stagger)"

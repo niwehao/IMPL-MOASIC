@@ -1,0 +1,11 @@
+{
+    "name": "NDv2_128KB_htsim_scaled10",
+    "gpus_per_node": 8,
+    "nics_per_node": 1,
+    "alpha": 3,
+    "node_betas_list": [28.75, 57.5],
+    "node_invbws_list": [31.75, 60.5],
+    "remote_invbw": 157.25,
+    "remote_alpha": 26,
+    "remote_beta": 131.25
+}

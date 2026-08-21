@@ -1,0 +1,9 @@
+demand,nv_gbps,variant,validation,completion_us,vs_bound,queue_drops
+zipf1.0_seed42,90,plan,PASSED,18016.4,1.1928,0
+zipf1.0_seed42,90,planst,PASSED,23742.9,1.572,0
+zipf1.0_seed42,180,plan,PASSED,13583.5,1.1991,0
+zipf1.0_seed42,180,planst,PASSED,16136.1,1.4244,0
+zipf1.0_seed42,360,plan,PASSED,8379.34,1.1096,0
+zipf1.0_seed42,360,planst,PASSED,9048.29,1.1981,0
+zipf1.0_seed42,2400,plan,PASSED,3774.58,1.1345,0
+zipf1.0_seed42,2400,planst,PASSED,3562.78,1.0709,0

@@ -1,0 +1,438 @@
+section,label,validation,completion_us,p99_us,binary_md5
+acct,nv2400 pb1 ecmp,PASSED,25040,,bc41df41
+acct,nv2400 pb1 fast,PASSED,6841.68,,bc41df41
+acct,nv2400 pb1 c4,PASSED,9002.99,,bc41df41
+acct,nv2400 pb1 c6,PASSED,6349.25,,bc41df41
+acct,nv2400 pb2 ecmp,PASSED,50263.5,,bc41df41
+acct,nv2400 pb2 fast,PASSED,6841.68,,bc41df41
+acct,nv2400 pb2 c4,PASSED,9046,,bc41df41
+acct,nv2400 pb2 c6,PASSED,6417.66,,bc41df41
+acct,nv2400 pb4 ecmp,PASSED,100710,,bc41df41
+acct,nv2400 pb4 fast,PASSED,6841.68,,bc41df41
+acct,nv2400 pb4 c4,PASSED,9121.49,,bc41df41
+acct,nv2400 pb4 c6,PASSED,6679.01,,bc41df41
+acct,nv360 pb1 ecmp,PASSED,25040,,bc41df41
+acct,nv360 pb1 fast,PASSED,10126.4,,bc41df41
+acct,nv360 pb1 c4,PASSED,9180.91,,bc41df41
+acct,nv360 pb1 c6,PASSED,8861.77,,bc41df41
+acct,nv360 pb2 ecmp,PASSED,50263.5,,bc41df41
+acct,nv360 pb2 fast,PASSED,10126.4,,bc41df41
+acct,nv360 pb2 c4,PASSED,10597.1,,bc41df41
+acct,nv360 pb2 c6,PASSED,9466.19,,bc41df41
+acct,nv360 pb4 ecmp,PASSED,100710,,bc41df41
+acct,nv360 pb4 fast,PASSED,10126.4,,bc41df41
+acct,nv360 pb4 c4,PASSED,11831.1,,bc41df41
+acct,nv360 pb4 c6,PASSED,9580.62,,bc41df41
+acct,nv90 pb1 ecmp,PASSED,25040,,bc41df41
+acct,nv90 pb1 fast,PASSED,40478.6,,bc41df41
+acct,nv90 pb1 c4,PASSED,18942.9,,bc41df41
+acct,nv90 pb1 c6,PASSED,18208.5,,bc41df41
+acct,nv90 pb2 ecmp,PASSED,50263.5,,bc41df41
+acct,nv90 pb2 fast,PASSED,40478.6,,bc41df41
+acct,nv90 pb2 c4,PASSED,22894.4,,bc41df41
+acct,nv90 pb2 c6,PASSED,24598.3,,bc41df41
+acct,nv90 pb4 ecmp,PASSED,100710,,bc41df41
+acct,nv90 pb4 fast,PASSED,40478.6,,bc41df41
+acct,nv90 pb4 c4,PASSED,29490.7,,bc41df41
+acct,nv90 pb4 c6,PASSED,30610.3,,bc41df41
+acct,x4 nv2400 pb1 c5,PASSED,6506.51,,bc41df41
+acct,x4 nv2400 pb2 c5,PASSED,6651.43,,bc41df41
+acct,x4 nv2400 pb2 c5known,PASSED,6691.86,,bc41df41
+acct,x4 nv2400 pb4 c5,PASSED,6716.52,,bc41df41
+acct,x4 nv2400 pb4 c5known,PASSED,6789.79,,bc41df41
+acct,x4 nv360 pb1 c5,PASSED,8956.08,,bc41df41
+acct,x4 nv360 pb2 c5,PASSED,9628.74,,bc41df41
+acct,x4 nv360 pb2 c5known,PASSED,9503.3,,bc41df41
+acct,x4 nv360 pb4 c5,PASSED,9917.63,,bc41df41
+acct,x4 nv360 pb4 c5known,PASSED,9680.63,,bc41df41
+acct,x4 nv90 pb1 c5,PASSED,18512,,bc41df41
+acct,x4 nv90 pb2 c5,PASSED,24004.8,,bc41df41
+acct,x4 nv90 pb2 c5known,PASSED,22276.7,,bc41df41
+acct,x4 nv90 pb4 c5,PASSED,30551.5,,bc41df41
+acct,x4 nv90 pb4 c5known,PASSED,23875.7,,bc41df41
+p1rail,zipf t45 base,PASSED,10967.5,7813.28,bc41df41
+p1rail,zipf t45 static,PASSED,11536.5,8672.54,bc41df41
+p1rail,zipf t45 R,PASSED,10267,8017.48,bc41df41
+p1rail,zipf t90 base,PASSED,8211.98,6712.18,bc41df41
+p1rail,zipf t90 static,PASSED,8814.28,6429.36,bc41df41
+p1rail,zipf t90 R,PASSED,8482.59,6359.72,bc41df41
+p1rail,zipf t180 base,PASSED,8418.42,6153.9,bc41df41
+p1rail,zipf t180 static,PASSED,8625.49,6248.84,bc41df41
+p1rail,zipf t180 R,PASSED,7970.11,7793.4,bc41df41
+p1rail,zipf t360 base,PASSED,8674.99,6378.05,bc41df41
+p1rail,zipf t360 static,PASSED,8591.97,6307.14,bc41df41
+p1rail,zipf t360 R,PASSED,7762.37,7619.32,bc41df41
+p1rail,zipf t720 base,PASSED,8096.92,6400.06,bc41df41
+p1rail,zipf t720 static,PASSED,8587.66,6588.77,bc41df41
+p1rail,zipf t720 R,PASSED,8005.65,7533.76,bc41df41
+p1rail,zipf t1440 base,PASSED,8321.74,6547.66,bc41df41
+p1rail,zipf t1440 static,PASSED,8587.07,6544.96,bc41df41
+p1rail,zipf t1440 R,PASSED,7740.57,7598.3,bc41df41
+p1rail,solo t45,PASSED,9027.64,9023.65,bc41df41
+p1rail,solo t90,PASSED,7935.55,7905.41,bc41df41
+p1rail,solo t180,PASSED,7646.1,7638.39,bc41df41
+p1rail,solo t360,PASSED,7519.12,7512.31,bc41df41
+p1rail,solo t720,PASSED,7834.18,7819.69,bc41df41
+p1rail,solo t1440,PASSED,7788.83,7777.7,bc41df41
+p1rail,seed43 t45,PASSED,8456.35,6697.45,bc41df41
+p1rail,seed43 t90,PASSED,8939.29,6011.75,bc41df41
+p1rail,seed43 t180,PASSED,8526.57,6174.64,bc41df41
+p1rail,seed43 t360,PASSED,8584.42,6484.83,bc41df41
+p1rail,seed43 t720,PASSED,8535.09,6582.94,bc41df41
+p1rail,seed43 t1440,PASSED,8556.26,6393.53,bc41df41
+p1rail,zipf15 t45,PASSED,16960.5,11366.8,bc41df41
+p1rail,zipf15 t90,PASSED,13876.4,11144.2,bc41df41
+p1rail,zipf15 t180,PASSED,14229.4,11160.4,bc41df41
+p1rail,zipf15 t360,PASSED,14027.6,11474.3,bc41df41
+p1rail,zipf15 t720,PASSED,14612.6,11067.1,bc41df41
+p1rail,zipf15 t1440,PASSED,15062.7,11598.1,bc41df41
+p1rail,persrc t45,PASSED,3674.89,3382.49,bc41df41
+p1rail,persrc t90,PASSED,2815.74,2550.01,bc41df41
+p1rail,persrc t180,PASSED,2609.27,2490.14,bc41df41
+p1rail,persrc t360,PASSED,2560.76,2471.73,bc41df41
+p1rail,persrc t720,PASSED,2593.53,2480.27,bc41df41
+p1rail,persrc t1440,PASSED,2597.83,2479.34,bc41df41
+p1rail,uniform t45,PASSED,3027.97,2944.96,bc41df41
+p1rail,uniform t90,PASSED,2734.51,2672.27,bc41df41
+p1rail,uniform t180,PASSED,2766.11,2715.61,bc41df41
+p1rail,uniform t360,PASSED,2627.22,2606.67,bc41df41
+p1rail,uniform t720,PASSED,2590.35,2577,bc41df41
+p1rail,uniform t1440,PASSED,2541.38,2512.76,bc41df41
+p1pod,fix S1 C2 imp,PASSED,9328.77,,bc41df41
+p1pod,fix S1 C2 exp,PASSED,9430.26,,bc41df41
+p1pod,fix S1 C3 imp,PASSED,9348.21,,bc41df41
+p1pod,fix S1 C3 exp,PASSED,9264.82,,bc41df41
+p1pod,fix S1 C4 imp,PASSED,9198.8,,bc41df41
+p1pod,fix S1 C4 exp,PASSED,8970.57,,bc41df41
+p1pod,fix S1 C5 imp,PASSED,9243.21,,bc41df41
+p1pod,fix S1 C5 exp,PASSED,9256.77,,bc41df41
+p1pod,fix S1 C6 imp,PASSED,9057.14,,bc41df41
+p1pod,fix S1 C6 exp,PASSED,8948.95,,bc41df41
+p1pod,fix S2 C2 imp,PASSED,10403.6,,bc41df41
+p1pod,fix S2 C2 exp,PASSED,10743.5,,bc41df41
+p1pod,fix S2 C3 imp,PASSED,8641.04,,bc41df41
+p1pod,fix S2 C3 exp,PASSED,8932.22,,bc41df41
+p1pod,fix S2 C4 imp,PASSED,8273.51,,bc41df41
+p1pod,fix S2 C4 exp,PASSED,8709.99,,bc41df41
+p1pod,fix S2 C5 imp,PASSED,8412.62,,bc41df41
+p1pod,fix S2 C5 exp,PASSED,8866.48,,bc41df41
+p1pod,fix S2 C6 imp,PASSED,8655.27,,bc41df41
+p1pod,fix S2 C6 exp,PASSED,8676.48,,bc41df41
+p1pod,fix S3 C2 imp,PASSED,9136.63,,bc41df41
+p1pod,fix S3 C2 exp,PASSED,12480.8,,bc41df41
+p1pod,fix S3 C3 imp,PASSED,8968.61,,bc41df41
+p1pod,fix S3 C3 exp,PASSED,9689.44,,bc41df41
+p1pod,fix S3 C4 imp,PASSED,8464.68,,bc41df41
+p1pod,fix S3 C4 exp,PASSED,8393.42,,bc41df41
+p1pod,fix S3 C5 imp,PASSED,8512.28,,bc41df41
+p1pod,fix S3 C5 exp,PASSED,8383.66,,bc41df41
+p1pod,fix S3 C6 imp,PASSED,9159.21,,bc41df41
+p1pod,fix S3 C6 exp,PASSED,8487.49,,bc41df41
+p1pod,fix S4 C2 imp,PASSED,10217.6,,bc41df41
+p1pod,fix S4 C2 exp,PASSED,14246,,bc41df41
+p1pod,fix S4 C3 imp,PASSED,8387.57,,bc41df41
+p1pod,fix S4 C3 exp,PASSED,10474.7,,bc41df41
+p1pod,fix S4 C4 imp,PASSED,8279.07,,bc41df41
+p1pod,fix S4 C4 exp,PASSED,9005.7,,bc41df41
+p1pod,fix S4 C5 imp,PASSED,8347.98,,bc41df41
+p1pod,fix S4 C5 exp,PASSED,8903.65,,bc41df41
+p1pod,fix S4 C6 imp,PASSED,8529.45,,bc41df41
+p1pod,fix S4 C6 exp,PASSED,8350.02,,bc41df41
+p1pod,fix S5 C2 imp,PASSED,8356.75,,bc41df41
+p1pod,fix S5 C2 exp,PASSED,15354.5,,bc41df41
+p1pod,fix S5 C3 imp,PASSED,8344.31,,bc41df41
+p1pod,fix S5 C3 exp,PASSED,11390.5,,bc41df41
+p1pod,fix S5 C4 imp,PASSED,8623.86,,bc41df41
+p1pod,fix S5 C4 exp,PASSED,9589.82,,bc41df41
+p1pod,fix S5 C5 imp,PASSED,8457.33,,bc41df41
+p1pod,fix S5 C5 exp,PASSED,8429.94,,bc41df41
+p1pod,fix S5 C6 imp,PASSED,8720.46,,bc41df41
+p1pod,fix S5 C6 exp,PASSED,8486.51,,bc41df41
+p1pod,fix S6 C2 imp,PASSED,9821.11,,bc41df41
+p1pod,fix S6 C2 exp,PASSED,18162.4,,bc41df41
+p1pod,fix S6 C3 imp,PASSED,8524.38,,bc41df41
+p1pod,fix S6 C3 exp,PASSED,12802.4,,bc41df41
+p1pod,fix S6 C4 imp,PASSED,8219.04,,bc41df41
+p1pod,fix S6 C4 exp,PASSED,10547.2,,bc41df41
+p1pod,fix S6 C5 imp,PASSED,8357.18,,bc41df41
+p1pod,fix S6 C5 exp,PASSED,9293.08,,bc41df41
+p1pod,fix S6 C6 imp,PASSED,8672.17,,bc41df41
+p1pod,fix S6 C6 exp,PASSED,8910.53,,bc41df41
+p1pod,grow S1 C4 imp,PASSED,27458.2,,bc41df41
+p1pod,grow S1 C5 imp,PASSED,26668,,bc41df41
+p1pod,grow S1 C6 imp,PASSED,26488.6,,bc41df41
+p1pod,grow S2 C4 imp,PASSED,13872.9,,bc41df41
+p1pod,grow S2 C5 imp,PASSED,13826.1,,bc41df41
+p1pod,grow S2 C6 imp,PASSED,13694,,bc41df41
+p1pod,grow S3 C4 imp,PASSED,9620.69,,bc41df41
+p1pod,grow S3 C5 imp,PASSED,9469.54,,bc41df41
+p1pod,grow S3 C6 imp,PASSED,10084.2,,bc41df41
+p1pod,grow S4 C4 imp,PASSED,8279.07,,bc41df41
+p1pod,grow S4 C5 imp,PASSED,8347.98,,bc41df41
+p1pod,grow S4 C6 imp,PASSED,8529.45,,bc41df41
+p1pod,grow S5 C4 imp,PASSED,8449.11,,bc41df41
+p1pod,grow S5 C5 imp,PASSED,8352.76,,bc41df41
+p1pod,grow S5 C6 imp,PASSED,8455.3,,bc41df41
+p1pod,grow S6 C4 imp,PASSED,8047.09,,bc41df41
+p1pod,grow S6 C5 imp,PASSED,8105.22,,bc41df41
+p1pod,grow S6 C6 imp,PASSED,8325.97,,bc41df41
+p23,ref c4,PASSED,8565.57,,bc41df41
+p23,ref c6,PASSED,8418.42,,bc41df41
+p23,ref c6R,PASSED,7970.11,,bc41df41
+p23,ref fast,PASSED,10126.4,,bc41df41
+p23,ref ecmp,PASSED,21829.2,,bc41df41
+p23,g7 f2 c4,PASSED,8567.15,,bc41df41
+p23,g7 f2 c6,PASSED,8441.36,,bc41df41
+p23,g7 f2 c6R,PASSED,8038.02,,bc41df41
+p23,g7 f2 fast,PASSED,10126.4,,bc41df41
+p23,g7 f4 c4,PASSED,8334.54,,bc41df41
+p23,g7 f4 c6,PASSED,8768.46,,bc41df41
+p23,g7 f4 c6R,PASSED,8819.93,,bc41df41
+p23,g7 f4 fast,PASSED,10126.4,,bc41df41
+p23,g2 f2 c4,PASSED,8782.58,,bc41df41
+p23,g2 f2 c6,PASSED,8535.66,,bc41df41
+p23,g2 f2 c6R,PASSED,8082.16,,bc41df41
+p23,g2 f2 fast,PASSED,10126.4,,bc41df41
+p23,g2 f4 c4,PASSED,11218.1,,bc41df41
+p23,g2 f4 c6,PASSED,11084.3,,bc41df41
+p23,g2 f4 c6R,PASSED,12256.6,,bc41df41
+p23,g2 f4 fast,PASSED,10126.4,,bc41df41
+p23,g24 f2 c4,PASSED,8267.22,,bc41df41
+p23,g24 f2 c6,PASSED,8203.75,,bc41df41
+p23,g24 f2 c6R,PASSED,7909.2,,bc41df41
+p23,g24 f2 fast,PASSED,10126.4,,bc41df41
+p23,g24 f4 c4,PASSED,8432.26,,bc41df41
+p23,g24 f4 c6,PASSED,8535.95,,bc41df41
+p23,g24 f4 c6R,PASSED,8854.93,,bc41df41
+p23,g24 f4 fast,PASSED,13557.9,,bc41df41
+p23,g26 f2 c4,PASSED,10194.4,,bc41df41
+p23,g26 f2 c6,PASSED,10243.7,,bc41df41
+p23,g26 f2 c6R,PASSED,10278.1,,bc41df41
+p23,g26 f2 fast,PASSED,10126.4,,bc41df41
+p23,g26 f4 c4,PASSED,13759.5,,bc41df41
+p23,g26 f4 c6,PASSED,13402.3,,bc41df41
+p23,g26 f4 c6R,PASSED,13409.8,,bc41df41
+p23,g26 f4 fast,PASSED,13300.5,,bc41df41
+p23,g2f4 C2,PASSED,9242.42,,bc41df41
+p23,g2f4 C3,PASSED,11579.6,,bc41df41
+p23,g2f4 C4,PASSED,11218.1,,bc41df41
+p23,g2f4 C5,PASSED,11238.3,,bc41df41
+p23,g2f4 C6,PASSED,11084.3,,bc41df41
+p23,g2f4 C6 ramp2,PASSED,10661.8,,bc41df41
+p23,g2f4 C6 ramp3,PASSED,10947.4,,bc41df41
+p23b,g7 f2 d1 c4,PASSED,8567.62,,21738f5b
+p23b,g7 f2 d1 c6,PASSED,8447.3,,21738f5b
+p23b,g7 f2 d1 c6R,PASSED,7992.38,,21738f5b
+p23b,g7 f2 d1 fast,PASSED,10126.4,,21738f5b
+p23b,g7 f2 d2 c4,PASSED,8551.61,,21738f5b
+p23b,g7 f2 d2 c6,PASSED,8417.91,,21738f5b
+p23b,g7 f2 d2 c6R,PASSED,7986.07,,21738f5b
+p23b,g7 f2 d2 fast,PASSED,10126.4,,21738f5b
+p23b,g7 f4 d1 c4,PASSED,8551.17,,21738f5b
+p23b,g7 f4 d1 c6,PASSED,8780.95,,21738f5b
+p23b,g7 f4 d1 c6R,PASSED,8827.58,,21738f5b
+p23b,g7 f4 d1 fast,PASSED,10126.4,,21738f5b
+p23b,g7 f4 d2 c4,PASSED,8574.25,,21738f5b
+p23b,g7 f4 d2 c6,PASSED,8448.7,,21738f5b
+p23b,g7 f4 d2 c6R,PASSED,8009.3,,21738f5b
+p23b,g7 f4 d2 fast,PASSED,10126.4,,21738f5b
+p23b,g2 f2 d1 c4,PASSED,8764.72,,21738f5b
+p23b,g2 f2 d1 c6,PASSED,8535.2,,21738f5b
+p23b,g2 f2 d1 c6R,PASSED,8057.21,,21738f5b
+p23b,g2 f2 d1 fast,PASSED,10126.4,,21738f5b
+p23b,g2 f2 d2 c4,PASSED,8544.51,,21738f5b
+p23b,g2 f2 d2 c6,PASSED,8417.34,,21738f5b
+p23b,g2 f2 d2 c6R,PASSED,8002.5,,21738f5b
+p23b,g2 f2 d2 fast,PASSED,10126.4,,21738f5b
+p23b,g2 f4 d1 c4,PASSED,11339.3,,21738f5b
+p23b,g2 f4 d1 c6,PASSED,11272,,21738f5b
+p23b,g2 f4 d1 c6R,PASSED,11888.1,,21738f5b
+p23b,g2 f4 d1 fast,PASSED,10126.4,,21738f5b
+p23b,g2 f4 d2 c4,PASSED,8565.64,,21738f5b
+p23b,g2 f4 d2 c6,PASSED,8418.9,,21738f5b
+p23b,g2 f4 d2 c6R,PASSED,7885.63,,21738f5b
+p23b,g2 f4 d2 fast,PASSED,10126.4,,21738f5b
+p23b,g24 f2 d1 c4,PASSED,8568.31,,21738f5b
+p23b,g24 f2 d1 c6,PASSED,8453.79,,21738f5b
+p23b,g24 f2 d1 c6R,PASSED,8004.23,,21738f5b
+p23b,g24 f2 d1 fast,PASSED,10126.4,,21738f5b
+p23b,g24 f2 d2 c4,PASSED,8209.85,,21738f5b
+p23b,g24 f2 d2 c6,PASSED,8180.62,,21738f5b
+p23b,g24 f2 d2 c6R,PASSED,7896.8,,21738f5b
+p23b,g24 f2 d2 fast,PASSED,10126.4,,21738f5b
+p23b,g24 f4 d1 c4,PASSED,8536.61,,21738f5b
+p23b,g24 f4 d1 c6,PASSED,8404.34,,21738f5b
+p23b,g24 f4 d1 c6R,PASSED,8065.67,,21738f5b
+p23b,g24 f4 d1 fast,PASSED,10126.4,,21738f5b
+p23b,g24 f4 d2 c4,PASSED,8319.78,,21738f5b
+p23b,g24 f4 d2 c6,PASSED,8672,,21738f5b
+p23b,g24 f4 d2 c6R,PASSED,9086.18,,21738f5b
+p23b,g24 f4 d2 fast,PASSED,13557.9,,21738f5b
+p23b,g26 f2 d1 c4,PASSED,8589.7,,21738f5b
+p23b,g26 f2 d1 c6,PASSED,8475.58,,21738f5b
+p23b,g26 f2 d1 c6R,PASSED,8000.33,,21738f5b
+p23b,g26 f2 d1 fast,PASSED,10126.4,,21738f5b
+p23b,g26 f2 d2 c4,PASSED,10175.7,,21738f5b
+p23b,g26 f2 d2 c6,PASSED,10226.5,,21738f5b
+p23b,g26 f2 d2 c6R,PASSED,10306.8,,21738f5b
+p23b,g26 f2 d2 fast,PASSED,10126.4,,21738f5b
+p23b,g26 f4 d1 c4,PASSED,9314.72,,21738f5b
+p23b,g26 f4 d1 c6,PASSED,9131.16,,21738f5b
+p23b,g26 f4 d1 c6R,PASSED,9245.8,,21738f5b
+p23b,g26 f4 d1 fast,PASSED,10126.4,,21738f5b
+p23b,g26 f4 d2 c4,PASSED,13769,,21738f5b
+p23b,g26 f4 d2 c6,PASSED,13352.2,,21738f5b
+p23b,g26 f4 d2 c6R,PASSED,13338.8,,21738f5b
+p23b,g26 f4 d2 fast,PASSED,13300.5,,21738f5b
+p23b,relay2 c6,PASSED,11272,,21738f5b
+p23b,relay2 c6R,PASSED,11888.1,,21738f5b
+p23b,relay2 fast,PASSED,10126.4,,21738f5b
+p23b,relay2_10 c6,PASSED,10185.5,,21738f5b
+p23b,relay2_10 c6R,PASSED,11283.3,,21738f5b
+p23b,relay2_10 fast,PASSED,10126.4,,21738f5b
+p23b,relay2_10_18 c6,PASSED,9481.05,,21738f5b
+p23b,relay2_10_18 c6R,PASSED,10618.9,,21738f5b
+p23b,relay2_10_18 fast,PASSED,12463.9,,21738f5b
+p23b,oracle_allbut26 f1.25 c6,PASSED,8408.66,,21738f5b
+p23b,oracle_allbut26 f1.25 c6R,PASSED,8112.32,,21738f5b
+p23b,oracle_allbutrail2 f1.25 c6,PASSED,8406.45,,21738f5b
+p23b,oracle_allbutrail2 f1.25 c6R,PASSED,7874.31,,21738f5b
+p23b,oracle_allbut26 f1.5 c6,PASSED,8406.29,,21738f5b
+p23b,oracle_allbut26 f1.5 c6R,PASSED,7924.77,,21738f5b
+p23b,oracle_allbutrail2 f1.5 c6,PASSED,8644.86,,21738f5b
+p23b,oracle_allbutrail2 f1.5 c6R,PASSED,7897.95,,21738f5b
+p23b,oracle_allbut26 f2 c6,PASSED,8299.67,,21738f5b
+p23b,oracle_allbut26 f2 c6R,PASSED,7867.03,,21738f5b
+p23b,oracle_allbutrail2 f2 c6,PASSED,8082.34,,21738f5b
+p23b,oracle_allbutrail2 f2 c6R,PASSED,7804.9,,21738f5b
+p23b,oracle_allbut26 f4 c6,PASSED,10128,,21738f5b
+p23b,oracle_allbut26 f4 c6R,PASSED,13520.2,,21738f5b
+p23b,oracle_allbutrail2 f4 c6,PASSED,10255.5,,21738f5b
+p23b,oracle_allbutrail2 f4 c6R,PASSED,12591.5,,21738f5b
+mech,nv90 R,PASSED,15696.8,15299.1,0ad09ca5
+mech,nv90 pace1,PASSED,15861.4,13268.3,0ad09ca5
+mech,nv90 pace2,PASSED,16082.2,12901.2,0ad09ca5
+mech,nv90 Rpace1,PASSED,15567.2,15430.5,0ad09ca5
+mech,nv90 hostl,PASSED,15601.1,11854.7,0ad09ca5
+mech,nv180 R,PASSED,11855.6,11399.9,0ad09ca5
+mech,nv180 pace1,PASSED,12455.4,9665.86,0ad09ca5
+mech,nv180 pace2,PASSED,12712.6,9429.95,0ad09ca5
+mech,nv180 Rpace1,PASSED,11726.9,11341,0ad09ca5
+mech,nv180 hostl,PASSED,12184,9204.46,0ad09ca5
+mech,nv360 R,PASSED,7970.11,7793.4,0ad09ca5
+mech,nv360 pace1,PASSED,7916.88,6541.79,0ad09ca5
+mech,nv360 pace2,PASSED,7986.95,6379.04,0ad09ca5
+mech,nv360 Rpace1,PASSED,7928.74,7782.32,0ad09ca5
+mech,nv360 hostl,PASSED,8403.27,5880.98,0ad09ca5
+mech,nv420 R,PASSED,7217.92,7095.22,0ad09ca5
+mech,nv420 pace1,PASSED,7256.54,5679.58,0ad09ca5
+mech,nv420 pace2,PASSED,7331.61,5332.78,0ad09ca5
+mech,nv420 Rpace1,PASSED,7179.97,6916.01,0ad09ca5
+mech,nv420 hostl,PASSED,7556.71,5327.23,0ad09ca5
+mech,nv480 R,PASSED,6724.52,4827.28,0ad09ca5
+mech,nv480 pace1,PASSED,6369.65,5159.9,0ad09ca5
+mech,nv480 pace2,PASSED,6674.42,4809.71,0ad09ca5
+mech,nv480 Rpace1,PASSED,6604.66,5253,0ad09ca5
+mech,nv480 hostl,PASSED,6602.72,4648.82,0ad09ca5
+mech,nv600 R,PASSED,5539.13,3950.37,0ad09ca5
+mech,nv600 pace1,PASSED,5479.61,4443.84,0ad09ca5
+mech,nv600 pace2,PASSED,5636.94,4028.39,0ad09ca5
+mech,nv600 Rpace1,PASSED,5698.84,4414.24,0ad09ca5
+mech,nv600 hostl,PASSED,5577.51,4024.4,0ad09ca5
+mech,nv720 R,PASSED,4920.69,3539.11,0ad09ca5
+mech,nv720 pace1,PASSED,4884.77,3983.98,0ad09ca5
+mech,nv720 pace2,PASSED,4903.38,3679.58,0ad09ca5
+mech,nv720 Rpace1,PASSED,5070.66,3848.1,0ad09ca5
+mech,nv720 hostl,PASSED,4978.45,3561.05,0ad09ca5
+mech,nv2400 R,PASSED,3405.35,3295.95,0ad09ca5
+mech,nv2400 pace1,PASSED,3452.27,2987.63,0ad09ca5
+mech,nv2400 pace2,PASSED,3539.55,3006.35,0ad09ca5
+mech,nv2400 Rpace1,PASSED,3404.85,3297.17,0ad09ca5
+mech,nv2400 hostl,PASSED,3429.57,2997.14,0ad09ca5
+mech,uniform nv90 base,PASSED,4502.25,4321.62,0ad09ca5
+mech,uniform nv90 pace1,PASSED,4502.25,4321.62,0ad09ca5
+mech,uniform nv90 hostl,PASSED,4298.92,4162.49,0ad09ca5
+mech,uniform nv360 base,PASSED,2766.11,2715.61,0ad09ca5
+mech,uniform nv360 pace1,PASSED,2766.11,2715.61,0ad09ca5
+mech,uniform nv360 hostl,PASSED,2704.54,2675.17,0ad09ca5
+mech,uniform nv2400 base,PASSED,2552.77,2528.01,0ad09ca5
+mech,uniform nv2400 pace1,PASSED,2552.77,2528.01,0ad09ca5
+mech,uniform nv2400 hostl,PASSED,2574.54,2549.28,0ad09ca5
+mech,persrc nv90 base,PASSED,6519.24,5075.2,0ad09ca5
+mech,persrc nv90 pace1,PASSED,6411.19,5244.05,0ad09ca5
+mech,persrc nv90 hostl,PASSED,6054.11,4673.02,0ad09ca5
+mech,persrc nv360 base,PASSED,2609.27,2490.14,0ad09ca5
+mech,persrc nv360 pace1,PASSED,2609.27,2490.14,0ad09ca5
+mech,persrc nv360 hostl,PASSED,2573,2440.93,0ad09ca5
+mech,persrc nv2400 base,PASSED,2665.68,2500.03,0ad09ca5
+mech,persrc nv2400 pace1,PASSED,2665.68,2500.03,0ad09ca5
+mech,persrc nv2400 hostl,PASSED,2615.43,2468.61,0ad09ca5
+mech,taper45 pace1,PASSED,10967.5,7813.28,0ad09ca5
+mech,taper45 Rpace1,PASSED,10267,8017.48,0ad09ca5
+mech,taper90 pace1,PASSED,8211.98,6712.18,0ad09ca5
+mech,taper90 Rpace1,PASSED,8482.59,6359.72,0ad09ca5
+mech,taper180 pace1,PASSED,7916.88,6541.79,0ad09ca5
+mech,taper180 Rpace1,PASSED,7928.74,7782.32,0ad09ca5
+mech,taper360 pace1,PASSED,8477.15,6704.74,0ad09ca5
+mech,taper360 Rpace1,PASSED,7826.05,7705.27,0ad09ca5
+mech,taper720 pace1,PASSED,8244.32,6573.54,0ad09ca5
+mech,taper720 Rpace1,PASSED,8002.01,7764.88,0ad09ca5
+mech,taper1440 pace1,PASSED,8154.04,6740.79,0ad09ca5
+mech,taper1440 Rpace1,PASSED,8077.59,7928.83,0ad09ca5
+mech,seed43 base,PASSED,8526.57,6174.64,0ad09ca5
+mech,seed43 pace1,PASSED,8328.45,6325.26,0ad09ca5
+mech,seed43 R,PASSED,8475.17,5965.67,0ad09ca5
+mech,zipf15 base,PASSED,14229.4,11160.4,0ad09ca5
+mech,zipf15 pace1,PASSED,13862.8,11153.4,0ad09ca5
+mech,zipf15 R,PASSED,14156.1,13437.9,0ad09ca5
+mech,khot2 base,PASSED,6127.39,5418.95,0ad09ca5
+mech,khot2 pace1,PASSED,5920.23,5164.38,0ad09ca5
+mech,khot2 R,PASSED,6145.79,5337.45,0ad09ca5
+mech,khot4 base,PASSED,5000.42,4628.07,0ad09ca5
+mech,khot4 pace1,PASSED,4971.31,4577.85,0ad09ca5
+mech,khot4 R,PASSED,4922.49,4626.16,0ad09ca5
+mech,khot8 base,PASSED,3669.51,3505.86,0ad09ca5
+mech,khot8 pace1,PASSED,3680.47,3503.92,0ad09ca5
+mech,khot8 R,PASSED,3632.05,3430.72,0ad09ca5
+mech,drift base,PASSED,8412.29,6151.89,0ad09ca5
+mech,drift pace1,PASSED,8077.48,6326.28,0ad09ca5
+mech,n64 base,PASSED,30368.4,14923.1,0ad09ca5
+mech,n64 pace1,PASSED,29518.9,21277.7,0ad09ca5
+mech,pod up1440 pace1,PASSED,7990.87,6567.82,0ad09ca5
+mech,pod up720 pace1,PASSED,8482.04,6956.69,0ad09ca5
+mech,r2p pb4 pace1,PASSED,6582.41,5762.08,0ad09ca5
+mech,r2p sym pace1,PASSED,8561.58,6920.23,0ad09ca5
+mech,cube stack,PASSED,4148.5,3766.38,0ad09ca5
+mech,cube stack_pace1,PASSED,4003.27,3724.44,0ad09ca5
+mech,cube250 jh,PASSED,4592.15,3529.68,0ad09ca5
+mech,cube250 jh_pace1,PASSED,4554.9,3968.91,0ad09ca5
+mech,g7 f2 d0 hostl,PASSED,8415.36,5861.7,0ad09ca5
+mech,g7 f2 d1 hostl,PASSED,8480.44,5903.62,0ad09ca5
+mech,g7 f2 d2 hostl,PASSED,8411.88,5899.34,0ad09ca5
+mech,g7 f4 d0 hostl,PASSED,8333.65,7072.72,0ad09ca5
+mech,g7 f4 d1 hostl,PASSED,8372.06,7092.74,0ad09ca5
+mech,g7 f4 d2 hostl,PASSED,8410.37,5925.63,0ad09ca5
+mech,g2 f2 d0 hostl,PASSED,8277.85,6079.24,0ad09ca5
+mech,g2 f2 d1 hostl,PASSED,8192.54,6320.37,0ad09ca5
+mech,g2 f2 d2 hostl,PASSED,8412.69,5903.17,0ad09ca5
+mech,g2 f4 d0 hostl,PASSED,8470.71,7470.95,0ad09ca5
+mech,g2 f4 d1 hostl,PASSED,8462.54,7501.53,0ad09ca5
+mech,g2 f4 d2 hostl,PASSED,8413.05,5885.17,0ad09ca5
+mech,g24 f2 d0 hostl,PASSED,8201.16,5747.56,0ad09ca5
+mech,g24 f2 d1 hostl,PASSED,8396.15,5873.34,0ad09ca5
+mech,g24 f2 d2 hostl,PASSED,8206.63,5753.3,0ad09ca5
+mech,g24 f4 d0 hostl,PASSED,8635.46,6587.86,0ad09ca5
+mech,g24 f4 d1 hostl,PASSED,8400.64,6626.6,0ad09ca5
+mech,g24 f4 d2 hostl,PASSED,8669.91,6065.44,0ad09ca5
+mech,g26 f2 d0 hostl,PASSED,10207.6,6895.07,0ad09ca5
+mech,g26 f2 d1 hostl,PASSED,8398.34,5920.62,0ad09ca5
+mech,g26 f2 d2 hostl,PASSED,10204,6903.2,0ad09ca5
+mech,g26 f4 d0 hostl,PASSED,13390.8,10787.5,0ad09ca5
+mech,g26 f4 d1 hostl,PASSED,8389.83,6876.39,0ad09ca5
+mech,g26 f4 d2 hostl,PASSED,13359.5,10753.3,0ad09ca5
+mech,g2f4d1 hostl_R,PASSED,8952.55,7875.39,0ad09ca5
+mech,g2f4d1 hostl_pace,PASSED,8407.4,7444.57,0ad09ca5
+mech,relay2_10 hostl,PASSED,8582.53,7793.83,0ad09ca5
+mech,relay2_10_18 hostl,PASSED,9378.88,8320.66,0ad09ca5
+mech,cube250 fullstack,PASSED,4344.04,,0ad09ca5
+mech,cube250 fullstack_pace1,PASSED,4201.19,,0ad09ca5

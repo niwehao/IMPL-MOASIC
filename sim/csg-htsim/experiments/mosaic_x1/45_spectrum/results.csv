@@ -1,0 +1,26 @@
+demand,R_us,scheme,detail,completion_us,status,vs_barrier35,vs_pr39,vs_oa43,cut_ok
+_meta,0,frozen_binary_md5,6058ce621fba3f7e00bff29c18f038e2,0,-,,,,
+_meta,0,opponents,frozen archives 35(barrier)+39(PR)+43(O-A)+40(drift/O-W); none rerun,0,-,,,,
+uniform,10,mosaic_os,winner=match portR=992 plan_ms=615,960.617,PASSED,1.016,1.000,2.164,OK
+uniform,100,mosaic_os,winner=ron-d13 portR=416 plan_ms=105,2674.65,PASSED,1.008,1.000,2.005,OK
+uniform,1000,mosaic_os,winner=ron-d2 portR=64 plan_ms=131,7376.71,PASSED,1.016,1.000,1.010,OK
+uniform,10000,mosaic_os,winner=wave_arb portR=- plan_ms=130,20522.2,PASSED,1.006,0.995,1.000,OK
+zipf10,10,mosaic_os,winner=match portR=992 plan_ms=583,5408.16,PASSED,1.003,1.000,1.248,OK
+zipf10,100,mosaic_os,winner=rot{1,7,25,31} portR=128 plan_ms=310,6620.06,PASSED,1.193,1.000,1.280,OK
+zipf10,1000,mosaic_os,winner=wave_arb portR=- plan_ms=312,10275.5,PASSED,1.292,0.995,1.000,OK
+zipf10,10000,mosaic_os,winner=static-oropt-max portR=32 plan_ms=340,22272.3,PASSED,1.000,1.000,1.018,OK
+zipf20,10,mosaic_os,winner=rot{1,5,31} portR=96 plan_ms=308,12688.5,PASSED,1.023,1.000,1.104,OK
+zipf20,100,mosaic_os,winner=rot{1,5,31} portR=96 plan_ms=311,12958.5,PASSED,1.164,1.000,1.094,OK
+zipf20,1000,mosaic_os,winner=rot{1,31} portR=64 plan_ms=307,14777.3,PASSED,1.082,1.000,1.082,OK
+zipf20,10000,mosaic_os,winner=static-theta portR=32 plan_ms=335,24985.9,PASSED,1.000,1.000,1.076,OK
+persrc,10,mosaic_os,winner=match portR=992 plan_ms=633,1443.71,PASSED,1.097,1.097,1.985,OK
+persrc,100,mosaic_os,winner=ron-d12 portR=384 plan_ms=83,4131.85,PASSED,1.007,1.000,1.386,OK
+persrc,1000,mosaic_os,winner=wave_arb portR=- plan_ms=649,7528.67,PASSED,1.329,1.096,1.000,OK
+persrc,10000,mosaic_os,winner=static-oropt-sum portR=32 plan_ms=695,19004.1,PASSED,1.000,1.000,1.168,OK
+drift_z10_at3000,1000,mosaic_os,winner=wave_arb,13043.5,PASSED,1.282,0.991,1.000,OK
+drift_z10_at5000,1000,mosaic_os,winner=wave_arb,14470.4,PASSED,1.155,1.012,1.000,OK
+drift_z10_at8000,1000,mosaic_os,winner=wave_arb,14522.3,PASSED,1.151,1.356,1.000,OK
+drift_z10_at9500,1000,mosaic_os,winner=wave_arb,15018.0,PASSED,1.113,1.126,1.000,OK
+zipf10_1000_n64,1000,mosaic_os,winner=ron-d7 plan_ms=8429,20185.0,PASSED,2.156,1.020,1.121,OK
+zipf10_100_n64,100,mosaic_os,winner=ron-d25 plan_ms=537,11902.0,PASSED,1.197,1.000,1.751,OK
+persrc_1000_n64,1000,mosaic_os,winner=ron-d7 plan_ms=570,20098.7,PASSED,1.778,1.000,1.604,OK

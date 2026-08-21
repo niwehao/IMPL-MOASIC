@@ -1,0 +1,36 @@
+cell,mosaic_u_us,prior_sota_us,prior_sota_cfg,delta_pct,verdict
+rail_nv90,15749.4,15528,C6+PC+R+PACE,+1.4,cost
+rail_nv180,11711.1,11727,C6+R+PACE,-0.14,new_sota
+rail_nv360,7939.3,7917,C6+PACE,+0.28,tie
+rail_nv420,7138.3,7180,C6+R+PACE,-0.58,new_sota
+rail_nv480,6296,6296,C6+PC+PACE(=U),0,tie
+rail_nv600,5441,5441,C6+PC+PACE(=U),0,tie
+rail_nv720,4812,4812,C6+PC+PACE(=U),0,tie
+rail_nv2400,3506.2,3405,C6+R,+3.0,cost(vs FAST 0.975x)
+rail_nv360_uniform,2503.67,2504,C6+PC,0,tie(PACE gate off)
+pod_up1440,8018.8,7991,C5+PACE,+0.35,cost
+pod_up720,8017.3,8077,C5+PC,-0.74,new_sota
+pod_up360,13840.3,13555,C5+R,+2.1,cost
+rail2p_2400_sym,6383.7,6349,C6 bare,+0.55,cost
+rail2p_2400_b2,6426.4,6418,C6 bare,+0.13,cost
+rail2p_2400_b4,6582.4,6679,C6 bare,-1.4,new_sota
+rail2p_360_sym,8561.6,8862,C6 bare,-3.4,new_sota
+rail2p_360_b2,9484.6,9466,C6 bare,+0.20,cost
+rail2p_360_b4,9591.2,9581,C6 bare,+0.11,cost
+rail2p_90_sym,18258.7,18209,C6 bare,+0.27,cost
+rail2p_90_b2,23346.9,22894,C4 bare,+2.0,cost
+rail2p_90_b4,30044,29491,C4 bare,+1.9,cost
+cube_mix,4003.27,4003,C6W16+LP+PACE(=U gated),0,tie(best known)
+cube_400x16,3599.9,3531,C6W12+jd_k6,+1.9,cost
+cube_250x16,4201,4201,C6W12+LP+PACE(=U),0,tie
+cube_100x16,8432.3,8045,C6W16+LP no-PACE,+4.8,cost(max)
+cube_50x16,12084,12003,C6W16+LP no-PACE/PC,+0.7,cost
+cube_full300,3493.0,3520,C6W12+jh,-0.77,new_sota
+cube_full50,8885.4,8932,C6+jh,-0.52,new_sota
+khot2,5874.7,5920,C6+PACE,-0.77,new_sota
+khot4,4990.8,4922,C6+R,+1.4,cost
+khot8,3750.6,3632,C6+R,+3.3,cost
+gpu64_8x8,28853.4,29519,C6+PACE,-2.3,new_sota
+drift_prior43,7987.1,8077,C6+PACE,-1.1,new_sota
+clos_zipf_up400,40791.3,40791.3,C6+PC(37),0,tie
+clos_incast1,161289,161289,C6/C6+PC(37),0,tie

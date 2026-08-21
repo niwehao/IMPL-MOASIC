@@ -1,0 +1,8 @@
+{
+  "name": "clos_16_4_1",
+  "node_count": 16,
+  "leaf_count": 4,
+  "spine_count": 1,
+  "link_rate_gbps": 100,
+  "alpha": 0.000005
+}

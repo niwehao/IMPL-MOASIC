@@ -1,0 +1,43 @@
+side,n,R_us,scheme,detail,completion_us,vs_LB
+eps,256,-,lower_bound,x1_bounds B1,40571,1.00
+eps,256,-,mosaic_c6,plan_us=1115,46117.2,1.137
+eps,256,-,mosaic_c6_pc,plan_us=1304,41547,1.024
+eps,256,-,fast_default,FAILED drops=598712 plan_us=111052,45929.6(FAILED),-
+eps,256,-,fast_buf4096,PASSED plan_us=108568,59410.3,1.464
+eps,256,-,ecmp_default,FAILED drops=4883820,59256.3(FAILED),-
+eps,256,-,ecmp_buf4096,PASSED,145371,3.583
+eps,256,-,mosaic_pc_buf4096,bit-identical to default buffer,41547,1.024
+eps,512,-,lower_bound,x1_bounds B1,74180,1.00
+eps,512,-,mosaic_c6,plan_us=3648,87162.4,1.175
+eps,512,-,mosaic_c6_pc,plan_us=4349,78977.1,1.065
+eps,512,-,fast_default,FAILED drops=2109000 plan_us=1.494e6,104117(FAILED),-
+eps,512,-,fast_buf4096,TIMEOUT>20min,-,-
+eps,512,-,fast_buf16384,PASSED plan_us=1.475e6,107934,1.455
+eps,512,-,ecmp_default,FAILED drops=19100793,54575(FAILED-partial),-
+eps,512,-,ecmp_buf4096,PASSED,287413,3.874
+eps,512,-,mosaic_pc_buf16384,bit-identical to default buffer,78977.1,1.065
+eps,1024,-,lower_bound,x1_bounds B1,139139,1.00
+eps,1024,-,mosaic_c6,SKIPPED sim>20min; plan_us=15881 measured,-,-
+eps,1024,-,mosaic_c6_pc,SKIPPED sim>20min; plan_us=20318 measured,-,-
+eps,1024,-,fast,SKIPPED sim>20min; plan_us=2.697e6 measured,-,-
+eps,1024,-,ecmp,FAILED drops=47584343,53744(FAILED-partial),-
+ocs,256,10,lower_bound,max_line_cut,27385.3,1.00
+ocs,256,10,ron_best_grid,d=255 (d<=4 rows sci-notation-corrupt & excluded; model >=87x worse),30062.8,1.098
+ocs,256,10,mosaic_o,PASSED reconfigs=329 wall_s=427,31480.3,1.150
+ocs,256,1000,ron_best_grid,d=64,159052,5.808
+ocs,256,1000,mosaic_o,PASSED reconfigs=1 (static NN cycle) wall_s=31,108834,3.974
+ocs,512,10,lower_bound,max_line_cut,50071.3,1.00
+ocs,512,10,ron_best_grid,d=511,55436.8,1.107
+ocs,512,10,mosaic_o,SKIPPED planning wall>20min,-,-
+ocs,512,1000,ron_best_grid,d=128,308468,6.161
+ocs,512,1000,mosaic_o,PASSED reconfigs=1 wall_s=420,216551,4.325
+ocs,1024,10,lower_bound,max_line_cut,93918.9,1.00
+ocs,1024,10,ron_best_grid,d=1023,104660,1.114
+ocs,1024,10,mosaic_o,SKIPPED planning wall>20min,-,-
+ocs,1024,1000,ron_best_grid,d=256,593642,6.321
+ocs,1024,1000,mosaic_o,SKIPPED planning wall>20min,-,-
+ocs,256,-,harvest_theta,600s Gurobi no executable plan (decomposition failed),-,-
+eps,1024,-,fast_buf4096,TIMEOUT>20min; plan_us=2.662e6,-,-
+eps,1024,-,fast_buf16384,TIMEOUT>20min; plan_us=3.109e6,-,-
+eps,1024,-,ecmp_buf4096,FAILED drops=22375646,239415(FAILED),-
+eps,1024,-,ecmp_buf16384,PASSED,557815,4.009

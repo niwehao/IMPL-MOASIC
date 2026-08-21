@@ -1,0 +1,16 @@
+uniform,10,optical PASSED spectrum winner match cands 37 dry 5 planning_ms 636.695 port_reconfigs 992 completion_us 960.617 hop_bytes 2080374784 app_bytes 2080374784 expected_bytes 2080374784
+uniform,100,optical PASSED spectrum winner ron-d13 cands 37 dry 5 planning_ms 106.895 port_reconfigs 416 completion_us 2674.65 hop_bytes 4362076160 app_bytes 2080374784 expected_bytes 2080374784
+uniform,1000,optical PASSED spectrum winner ron-d2 cands 39 dry 5 planning_ms 130.937 port_reconfigs 64 completion_us 7376.71 hop_bytes 17179869184 app_bytes 2080374784 expected_bytes 2080374784
+uniform,10000,optical PASSED spectrum winner ron-d1 cands 39 dry 4 planning_ms 150.212 port_reconfigs 32 completion_us 20409.9 hop_bytes 33285996544 app_bytes 2080374784 expected_bytes 2080374784
+zipf10,10,optical PASSED spectrum winner match cands 38 dry 5 planning_ms 559.381 port_reconfigs 992 completion_us 5408.16 hop_bytes 2080374784 app_bytes 2080374784 expected_bytes 2080374784
+zipf10,100,optical PASSED spectrum winner rot{1,7,25,31} cands 40 dry 5 planning_ms 300.159 port_reconfigs 128 completion_us 6620.06 hop_bytes 12973186048 app_bytes 2080374784 expected_bytes 2080374784
+zipf10,1000,optical PASSED spectrum winner rot{1,7,25,31} cands 40 dry 5 planning_ms 281.847 port_reconfigs 128 completion_us 10220.1 hop_bytes 12973186048 app_bytes 2080374784 expected_bytes 2080374784
+zipf10,10000,optical PASSED spectrum winner static-oropt-max cands 40 dry 4 planning_ms 308.299 port_reconfigs 32 completion_us 22272.3 hop_bytes 33293625344 app_bytes 2080374784 expected_bytes 2080374784
+zipf20,10,optical PASSED spectrum winner rot{1,5,31} cands 40 dry 5 planning_ms 280.863 port_reconfigs 96 completion_us 12688.5 hop_bytes 15124482048 app_bytes 2080374784 expected_bytes 2080374784
+zipf20,100,optical PASSED spectrum winner rot{1,5,31} cands 40 dry 5 planning_ms 280.53 port_reconfigs 96 completion_us 12958.5 hop_bytes 15124482048 app_bytes 2080374784 expected_bytes 2080374784
+zipf20,1000,optical PASSED spectrum winner rot{1,31} cands 40 dry 4 planning_ms 299.091 port_reconfigs 64 completion_us 14777.3 hop_bytes 18272933888 app_bytes 2080374784 expected_bytes 2080374784
+zipf20,10000,optical PASSED spectrum winner static-theta cands 40 dry 4 planning_ms 329.707 port_reconfigs 32 completion_us 24985.9 hop_bytes 33455983616 app_bytes 2080374784 expected_bytes 2080374784
+persrc,10,optical PASSED spectrum winner match cands 38 dry 5 planning_ms 611.594 port_reconfigs 992 completion_us 1443.71 hop_bytes 2080374784 app_bytes 2080374784 expected_bytes 2080374784
+persrc,100,optical PASSED spectrum winner ron-d12 cands 38 dry 5 planning_ms 81.545 port_reconfigs 384 completion_us 4131.85 hop_bytes 4867505152 app_bytes 2080374784 expected_bytes 2080374784
+persrc,1000,optical PASSED spectrum winner wave_arb cands 40 dry 5 planning_ms 650.524 completion_us 7528.67
+persrc,10000,optical PASSED spectrum winner static-oropt-sum cands 40 dry 4 planning_ms 677.531 port_reconfigs 32 completion_us 19004.1 hop_bytes 25753176064 app_bytes 2080374784 expected_bytes 2080374784
