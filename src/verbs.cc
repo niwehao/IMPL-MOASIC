@@ -171,10 +171,13 @@ static bool qp_connect(VerbsCtx* v, ibv_qp* qp, uint32_t my_psn, uint32_t rem_qp
   a.dest_qp_num = rem_qpn;
   a.rq_psn = rem_psn;
   a.max_dest_rd_atomic = 1;
-  // RNR 退避取最小档(0.01ms):接收端交付后 ~12µs 就补投(Raven 实测),
-  // 640µs 档会把每次撞 RNR 变成半个毫秒的空转 —— 32M/pair 形状实测被它
-  // 钉在 ~50% 占空比(raven-0819-verbs-plane)。背压语义不变,只是醒得快。
-  a.min_rnr_timer = 1;
+  // RNR 退避 0.16ms(编码 8)。历史:曾取最小档 0.01ms 治 32M 形态的 RNR
+  // 空转(raven-0819-verbs-plane);但 10µs 节拍在极端 incast 下变成重试
+  // **包频**风暴 —— 数百 WR × 100kHz 重试锤热 HCA,把热 rank 自己的出向
+  // 发包引擎饿死 ⇒ 它的 send 传输重试耗尽(E1025 status=12,死的总是热
+  // rank 的 SEND)。0.16ms + 发送端每节点在途帽(node_inflight)双管:
+  // RNR 变稀有事件,重试频率降 16×;空转税由帽内深度掩盖。
+  a.min_rnr_timer = 8;
   a.ah_attr.port_num = (uint8_t)v->port;
   if (rem.lid) {                  // IB:LID 路由(对端 lid 非 0 才可能)
     a.ah_attr.is_global = 0;

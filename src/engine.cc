@@ -1141,8 +1141,13 @@ static void coll_begin(Comm* c) {
     } else {
       // 安全下界(悬崖 = QP 级联死,宁高勿低)
       const int rem_peers = std::max(1, c->cfg.nranks - c->cfg.gpus_per_host);
+      // 安全下界取**半**聚合窗:悬崖 = 热节点 HCA/host 排水滞流 → 链路信用
+      // 级联(xmit_wait 暴涨、RNR≈0,与 0819 GDR-write 双稳态同款平台现象;
+      // 29430096 计数器实锤)。全窗边界实测有死点(α2 W3=327MB/波死、
+  // α1 W2=235MB/波稳),半窗把全部实测死点挡在界外 —— 宁多分一波,
+      // 悬崖是 QP 级联死不是慢一点。
       const uint64_t win = (uint64_t)rdma_rx_slots(c->cfg.slice_bytes) *
-                           (uint64_t)c->cfg.slice_bytes * (uint64_t)rem_peers;
+                           (uint64_t)c->cfg.slice_bytes * (uint64_t)rem_peers / 2;
       int wsafe = win ? (int)((wmax_x + win - 1) / win) : 1;
       if (wsafe < 1) wsafe = 1;
       if (wsafe > c->cfg.waves) wsafe = c->cfg.waves;
