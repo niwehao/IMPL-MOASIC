@@ -1345,6 +1345,9 @@ static void coll_try_finish(Comm* c) {
           while (nxt >= c->warm_wsafe && nxt < 16 && (a.bad_mask & (1u << nxt))) nxt--;
           if (nxt >= c->warm_wsafe) a.cur_w = nxt;
         }
+        MLOG_DBG("W-arm key=%08llx ema=%.1fms best=W%d(%.1f) bad=%03x → W%d(safe≥%d)",
+                 (unsigned long long)(a.key & 0xFFFFFFFF), a.ema_ms, a.best_w,
+                 a.best_ms, a.bad_mask, a.cur_w, c->warm_wsafe);
         a.samples = 0;
         a.ema_ms = 0;
       }
