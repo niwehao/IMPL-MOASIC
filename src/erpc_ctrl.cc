@@ -9,7 +9,7 @@
  *
  * 为什么还要有它:没有 RDMA 卡的机器,控制面只剩 kernel TCP(p50 ~35µs),
  * 比两个 kernel-bypass 档慢一个数量级。这一档用 eRPC(NSDI'19 可靠 RPC,
- * Doc/Code/eRPC)架在 DPDK 用户态以太网上 —— 普通以太网卡即可。
+ * aux/third_party/eRPC)架在 DPDK 用户态以太网上 —— 普通以太网卡即可。
  *
  * 与 RDMA 档的关系:两档**正交且互斥**,engine_start 的能力探测二选一
  * (见 engine.cc「控制面档位」);ctrl_send 里两个分支互不相干,选中 RDMA
