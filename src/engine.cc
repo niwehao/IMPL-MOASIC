@@ -2378,6 +2378,17 @@ static void event_loop(Comm* c) {
     seg(5); pump_tx(c);
     seg(6); pump_rx(c);
     seg(7); pump_protocol(c);
+    // 消费者核 in-vivo 服务曲线采样(200µs;孤立微基准 20+GB/s vs 引擎语境
+    // ~2-4GB/s 的落差归因用,local-0821-kcons-rate)
+    if (g_trace_on && c->kdesc_active) {
+      static thread_local uint64_t next_ks = 0;
+      uint64_t tn = now_ns();
+      if (tn > next_ks) {
+        next_ks = tn + 200000;
+        MTRACE(TE_KDESC_SAMP, 0, c->kdesc_pushed,
+               __atomic_load_n((uint64_t*)(c->kdesc_ctr + 64), __ATOMIC_ACQUIRE));
+      }
+    }
     seg(8); coll_try_finish(c);
     seg(9); watchdog(c);
     seg(0);

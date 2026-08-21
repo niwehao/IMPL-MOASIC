@@ -145,6 +145,7 @@ enum TraceEv : uint16_t {
   TE_COLL_END = 14,    // a=coll_id, b=total_recv
   TE_LOOP = 15,        // 事件循环一圈  b=上一圈耗时 ns(仅 MOSAIC_TRACE>=2)
   TE_KDESC_PUSH = 16,  // dst:交付描述符入环  a=(src<<16|dst), b=off, c=len<<8|hop
+  TE_KDESC_SAMP = 17,  // 消费者核 in-vivo 采样  b=head(pushed), c=done(仅 TRACE 开)
 };
 #pragma pack(push, 1)
 struct TraceRec { uint64_t t_ns; uint16_t ev; uint16_t rank; uint32_t a; uint64_t b, c; };
