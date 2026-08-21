@@ -1564,10 +1564,6 @@ void on_slice_arrived(Comm* c, const SliceHdr& h, void* payload, int shm_ring, i
 
   if (final_hop) {
     if ((int)h.dst != me) { MLOG_ERR("E2001 终跳落错 rank(%d≠%d)", h.dst, me); return; }
-    // 波触发计数(到达即计,见 rx_retire 处注释):只认本代当前波
-    if ((int16_t)(h.coll - (uint16_t)(c->coll_id & 0xFFFF)) == 0 &&
-        h.wave == c->dst.wave_idx - 1)
-      c->dst.wave_delivered += h.len;
     // 坑 #48 的兜底告警:代际闸门开在各收方路径的入口(pump_shm / verbs 收路),
     // 走到这里就该已经是本代。若不是,说明还有一条路径没装闸门 —— 这一片会被
     // 落进**错的一代的 recvbuf** 并记进错的账。宁可吵,也不要静默损坏。
@@ -1643,8 +1639,8 @@ static void pump_one_queue(Comm* c, std::deque<ReadySlice>& q, bool via_nic) {
     InflightTx t;
     t.h = r.h; t.peer = peer; t.via_nic = via_nic; t.relay_slot = r.relay_slot;
     void* hdst = nullptr;
-    MTRACE(TE_SLICE_POST, ((uint32_t)r.h.src << 16) | r.h.dst, r.h.off,
-           ((uint64_t)r.h.len << 8) | r.h.hop);
+    // TE_SLICE_POST 打在各分支**真正派发**之后 —— 打在背压检查前会把同一片的
+    // 重试轮询记录成百上千次(29425220-021058 实测),观测面失真
     // 流序窗口(kdesc):verbs TX 的 staging 拷贝(sendbuf/relay → host pinned,
     // SM 经 UVA 写)交消费者核 —— 引擎零 CUDA 调用。**窗口内引擎不许碰任何
     // CUDA API**:gated 下 app 线程在 torch sync 里持驱动锁,event 线程一句
@@ -1653,12 +1649,6 @@ static void pump_one_queue(Comm* c, std::deque<ReadySlice>& q, bool via_nic) {
     // host-bounce,不存在会被压制的入向 GDR 写(见 verbs.cc 头注)。
     // 拷完(kq 排干,kind=4)再发 WR。hop0 源 = sendbuf,输入门在消费者核内。
     if (via_nic && c->kdesc_active) {
-      // TX staging 让路(convoy 拆解,29425220-015031 trace 归因):波边界
-      // 策略先于对端数据到达,21MB 级 TX 突发抢先占满共享 kdesc 环,后到的
-      // RX 交付排队 ~7ms,75% 波触发被拖住 ⇒ 全局波节奏锁死。环深超过
-      // 16 个 chunk(≈4MB 在途)时 TX 暂让(片留在 ready 队列下轮再推),
-      // RX 交付(kind=0/6)不受限 —— 空环时 TX 全速,吞吐不受损。
-      if (c->kdesc_pushed - c->kdesc_consumed > 16) return;
       int slot = stage_alloc2(c);
       if (slot < 0) return;                     // staging 用完 = 背压
       if (!kdesc_push_split(c, (uint64_t)(uintptr_t)r.gpu_src,
@@ -1667,6 +1657,8 @@ static void pump_one_queue(Comm* c, std::deque<ReadySlice>& q, bool via_nic) {
         return;                                 // 描述符环满 = 背压
       }
       t.stage_slot = slot;
+      MTRACE(TE_SLICE_POST, ((uint32_t)r.h.src << 16) | r.h.dst, r.h.off,
+             ((uint64_t)r.h.len << 8) | r.h.hop);
       KEntry e; e.kind = 4; e.t = t;
       es->kq.push_back(e);
       c->buck[up_kind(true)].take(r.h.len);
@@ -1717,6 +1709,8 @@ static void pump_one_queue(Comm* c, std::deque<ReadySlice>& q, bool via_nic) {
             uint8_t* dst = (uint8_t*)base + doff + r.h.off;
             if (!kdesc_push_split(c, (uint64_t)(uintptr_t)r.gpu_src, dst, r.h.len))
               return;                                  // 背压(含切分后的条数)
+            MTRACE(TE_SLICE_POST, ((uint32_t)r.h.src << 16) | r.h.dst, r.h.off,
+                   ((uint64_t)r.h.len << 8) | r.h.hop);
             KEntry e; e.kind = 6; e.t.peer = peer; e.t.h = r.h;
             e.t.relay_slot = r.relay_slot;
             es->kq.push_back(e);
@@ -1741,6 +1735,8 @@ static void pump_one_queue(Comm* c, std::deque<ReadySlice>& q, bool via_nic) {
         c->buck[up_kind(false)].take(r.h.len);
         if (r.h.hop == 0) c->posted_send += r.h.len;
         if (!c->ph_first_post_ns) c->ph_first_post_ns = now_ns();
+        MTRACE(TE_SLICE_POST, ((uint32_t)r.h.src << 16) | r.h.dst, r.h.off,
+               ((uint64_t)r.h.len << 8) | r.h.hop);
         KEntry e; e.kind = 1; e.t = t;
         es->kq.push_back(e);
         q.pop_front();
@@ -1753,6 +1749,8 @@ static void pump_one_queue(Comm* c, std::deque<ReadySlice>& q, bool via_nic) {
       t.shm_ring = peer;
       hdst = pay;
     }
+    MTRACE(TE_SLICE_POST, ((uint32_t)r.h.src << 16) | r.h.dst, r.h.off,
+           ((uint64_t)r.h.len << 8) | r.h.hop);
     copy_async(c, hdst, r.gpu_src, r.h.len, cudaMemcpyDeviceToHost, c->stream_d2h);
     t.ev = ev_take(c); ev_record(c, t.ev, c->stream_d2h);
     c->buck[up_kind(via_nic)].take(r.h.len);
@@ -1835,10 +1833,10 @@ static void rx_retire(Comm* c, InflightRx& r) {
     c->st.bytes_recv += r.h.len;
     c->dst.total_recv += r.h.len;
     c->dst.recv_by_src[r.h.src] += r.h.len;
-    // 波触发计数已移到 on_slice_arrived(到达即计):流控要的是「字节离网」
-    // 信号,交付(kdesc H2D)的 ~2ms 滞后混进触发环路会把有效在途深度压到
-    // ~1 波,系统落进低速自洽平衡(trace 29425220-015657:每波 ~15ms 间隙,
-    // 全员 10Gbps 恒速互等)。交付计数仍单独管正确性(total_recv/FIN)。
+    // 波触发计交付(不是到达):A/B 实测(29425220-0200 vs -011534)到达即计
+    // 让 α=1/2 斜格劣化 27-31% —— 交付滞后是对热点的**保护性背压**(触发环路
+    // 里含接收侧真实排水能力);uniform 由 W 自适应走 W=1,不受此滞后影响。
+    if (r.h.wave == c->dst.wave_idx - 1) c->dst.wave_delivered += r.h.len;
     // 本 dst 收满 → 广播 CT_FIN(PACE 的 hot-done 放行信号;控制面小报文)
     if (!es->fin_sent && c->dst.total_recv >= c->total_recv_expect &&
         c->total_recv_expect > 0) {
@@ -2170,6 +2168,16 @@ static void pump_protocol(Comm* c) {
         !(d.wave_deadline_ns &&
           t > d.wave_deadline_ns + (d.wave_deadline_ns - d.wave_start_ns))) {
       paced = true;   // 兜底:超过一个额外 deadline 周期仍无 hot 进展则放行
+    }
+    // 触发归因(TE_STAGGER 复用:b 高位 = 已交付比例‰,低位 = 途径):
+    // 每 2ms 打一个"等待中"样本,触发瞬间打途径 —— 波节奏之谜的观测面
+    if (d.active && d.wave_bytes > 0 && d.wave_idx < eff_W(c) && g_trace_on) {
+      static thread_local uint64_t next_smp = 0;
+      if (t > next_smp) {
+        next_smp = t + 2000000;
+        MTRACE(TE_STAGGER, 0xFFFF, (d.wave_delivered * 1000 / d.wave_bytes) * 4 +
+                                        (thr_hit ? 1 : 0) + (deadline_hit ? 2 : 0), 0);
+      }
     }
     if (!paced && !d.pending_trigger && d.wave_idx < eff_W(c) &&
         d.wave_bytes > 0 && (thr_hit || deadline_hit)) {
