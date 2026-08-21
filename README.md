@@ -10,6 +10,10 @@ bug/debug 记录 `../../File/log.md`。
 
 ```
 mosaic-rt/
+├── nccl/           NCCL baseline(bench_nccl.py 同尺墙钟基准 + run2.sh 双机启动;
+│                   两后端同一把尺的对比腿,不属于交付物)
+├── sim/            MOSAIC 模拟器版本(csg-htsim/FAST/syccl-grb/taccl;
+│                   协议核决策语义的金标来源,replay_core_test 对拍它)
 ├── src/            运行时源码(唯一交付物)
 │   ├── api.cc          L3:mosaicAlltoallv[Ex]、完成契约(gated/阻塞)、wait_coll
 │   ├── engine.cc       L1+L2:事件循环、波引擎、W 在线自适应、账本、kdesc、
@@ -63,7 +67,7 @@ mt.patch_megatron()                  # 单点替换 mcore 的 a2a 原语;nccl �
 
 ```bash
 # 本机双机:
-cd Impl && MT_BACKEND=... bash baseline-rt/run2.sh baseline-rt/bench_nccl.py --backend mosaic --mode hotdst --alpha 1 --msg 8388608
+cd Impl && MT_BACKEND=... bash mosaic-rt/nccl/run2.sh mosaic-rt/nccl/bench_nccl.py --backend mosaic --mode hotdst --alpha 1 --msg 8388608
 # C++ 基准(gated 档,引擎内部口径 med_us):
 cd Impl/mosaic-rt && G=4 bash aux/scripts/run2host.sh --msg 1048576 --sched mosaic --verify 1
 # Raven(占位内):
