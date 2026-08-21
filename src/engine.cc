@@ -1564,6 +1564,10 @@ void on_slice_arrived(Comm* c, const SliceHdr& h, void* payload, int shm_ring, i
 
   if (final_hop) {
     if ((int)h.dst != me) { MLOG_ERR("E2001 终跳落错 rank(%d≠%d)", h.dst, me); return; }
+    // 波触发计数(到达即计,见 rx_retire 处注释):只认本代当前波
+    if ((int16_t)(h.coll - (uint16_t)(c->coll_id & 0xFFFF)) == 0 &&
+        h.wave == c->dst.wave_idx - 1)
+      c->dst.wave_delivered += h.len;
     // 坑 #48 的兜底告警:代际闸门开在各收方路径的入口(pump_shm / verbs 收路),
     // 走到这里就该已经是本代。若不是,说明还有一条路径没装闸门 —— 这一片会被
     // 落进**错的一代的 recvbuf** 并记进错的账。宁可吵,也不要静默损坏。
@@ -1581,6 +1585,8 @@ void on_slice_arrived(Comm* c, const SliceHdr& h, void* payload, int shm_ring, i
     if (c->kdesc_active) {
       uint64_t sdev = kdesc_resolve_src(c, payload, shm_ring, verbs_token, via_nic);
       if (sdev && kdesc_push_split(c, sdev, gdst, h.len)) {   // 输入门在消费者核内
+        MTRACE(TE_KDESC_PUSH, ((uint32_t)h.src << 16) | h.dst, h.off,
+               ((uint64_t)h.len << 8) | h.hop);
         KEntry e; e.kind = 0; e.r = r;
         es->kq.push_back(e);
         return;
@@ -1647,6 +1653,12 @@ static void pump_one_queue(Comm* c, std::deque<ReadySlice>& q, bool via_nic) {
     // host-bounce,不存在会被压制的入向 GDR 写(见 verbs.cc 头注)。
     // 拷完(kq 排干,kind=4)再发 WR。hop0 源 = sendbuf,输入门在消费者核内。
     if (via_nic && c->kdesc_active) {
+      // TX staging 让路(convoy 拆解,29425220-015031 trace 归因):波边界
+      // 策略先于对端数据到达,21MB 级 TX 突发抢先占满共享 kdesc 环,后到的
+      // RX 交付排队 ~7ms,75% 波触发被拖住 ⇒ 全局波节奏锁死。环深超过
+      // 16 个 chunk(≈4MB 在途)时 TX 暂让(片留在 ready 队列下轮再推),
+      // RX 交付(kind=0/6)不受限 —— 空环时 TX 全速,吞吐不受损。
+      if (c->kdesc_pushed - c->kdesc_consumed > 16) return;
       int slot = stage_alloc2(c);
       if (slot < 0) return;                     // staging 用完 = 背压
       if (!kdesc_push_split(c, (uint64_t)(uintptr_t)r.gpu_src,
@@ -1823,7 +1835,10 @@ static void rx_retire(Comm* c, InflightRx& r) {
     c->st.bytes_recv += r.h.len;
     c->dst.total_recv += r.h.len;
     c->dst.recv_by_src[r.h.src] += r.h.len;
-    if (r.h.wave == c->dst.wave_idx - 1) c->dst.wave_delivered += r.h.len;
+    // 波触发计数已移到 on_slice_arrived(到达即计):流控要的是「字节离网」
+    // 信号,交付(kdesc H2D)的 ~2ms 滞后混进触发环路会把有效在途深度压到
+    // ~1 波,系统落进低速自洽平衡(trace 29425220-015657:每波 ~15ms 间隙,
+    // 全员 10Gbps 恒速互等)。交付计数仍单独管正确性(total_recv/FIN)。
     // 本 dst 收满 → 广播 CT_FIN(PACE 的 hot-done 放行信号;控制面小报文)
     if (!es->fin_sent && c->dst.total_recv >= c->total_recv_expect &&
         c->total_recv_expect > 0) {
