@@ -521,7 +521,19 @@ int verbs_poll(Comm* c) {
   int n = ibv_poll_cq(v->cq_send, 32, wc);
   for (int i = 0; i < n; i++) {
     if (wc[i].status != IBV_WC_SUCCESS) {
-      MLOG_ERR("E1025 send wc 失败 status=%d(%s)", wc[i].status, ibv_wc_status_str(wc[i].status));
+      // 死法解剖要知道"对谁":数据 WR 从 host 头槽读回 (src→dst,hop),
+      // 定位是哪个 peer 的排水路把这条 QP 拖死(坑 #58 归因的第一问)
+      if (!(wc[i].wr_id & (WRID_CTRL | WRID_RX | WRID_CRX))) {
+        SliceHdr dh;
+        memcpy(&dh, c->stage_hdr_pool + (size_t)(int)wc[i].wr_id * HDR_STRIDE, sizeof(dh));
+        MLOG_ERR("E1025 send wc 失败 status=%d(%s) peer=r%d (s%u→d%u hop%u len=%u)",
+                 wc[i].status, ibv_wc_status_str(wc[i].status),
+                 dh.path[dh.hop + 1], dh.src, dh.dst, dh.hop, dh.len);
+      } else {
+        MLOG_ERR("E1025 send wc 失败 status=%d(%s) ctrl_wr=%d",
+                 wc[i].status, ibv_wc_status_str(wc[i].status),
+                 (int)((wc[i].wr_id >> 40) & 7));
+      }
       if (!(wc[i].wr_id & (WRID_CTRL | WRID_RX | WRID_CRX))) {
         // 数据 WR 失败:在途账必须退(否则 node_inflight 永久占位 = 死锁),
         // staging 槽一并回收(此前是泄漏)
