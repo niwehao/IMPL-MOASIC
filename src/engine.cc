@@ -1108,16 +1108,16 @@ static void coll_begin(Comm* c) {
              c->coll_id, (unsigned long long)per_pair,
              (unsigned long long)(frag >> 10), cc, ratio, eff_W(c));
   }
-  // ── W 形态自适应(2026-08-21 默认规则;上面 AUTO_TIER/WAVE_FRAG 未设 eff_waves
-  // 时兜底)。输入全为已交换的可观测量(demand 矩阵列偏斜),无集群常数:
-  //   非热点(cmax < 2×cmed,与 PACE/auto-tier 同一 hot 谓词族)→ **W=1**:
-  //     4×4 实测多波在直发形态是纯税 —— 8M uniform W1=18.0ms(与 NCCL 打平)
-  //     vs W6=94.8ms(交付引擎浅队列 + 每波重规划往返,trace 归因
-  //     29425220-011011);小报文端 W 更是纯 RTT 叠加(n=8/16 两代实测)。
-  //   热点 → 保留 cfg.waves 多波:**波 = incast 流控** —— α=2 直发 W1 实测
-  //     QP 级联死(E1025 status=12),W6 存活(29425220-011534/011616)。
-  // SSP/hint 下 D 可能是上一拍矩阵(有界陈旧,D17 同哲学);矩阵全空时
-  // cmed=0 ⇒ 判非热点,与"无信息则直发"的保守方向一致。
+  // ── W 形态自适应(2026-08-21 默认;AUTO_TIER/WAVE_FRAG 显式设时优先):
+  //   非热点列 → W=1(多波在直发形态是纯税:8M uniform W1 打平 NCCL vs W6 5×;
+  //   小报文 W 是 RTT 叠加);热点列 → cfg.waves(波 = incast 流控)。
+  // 定量约束(29425220 全实测;静态窗口公式因 W3 共振暂不落地,在线自适应待做):
+  //   安全悬崖:每波跨机热列在途 ≤ 聚合已投接收窗(rdma_rx_slots×slice×跨机
+  //   src 数 ≈ 384MB @16rank/1MB)—— α2 下 W2(612MB/波)与 W3(408)都触发
+  //   E1025 QP 级联死,W6(204)存活;α1 W2(293)存活且 rank0 开门 20.0ms
+  //   (NCCL 37.2)= 在线调 W 的甜点证据;W3 有未解共振(α1 慢 2.8×)。
+  // hot 谓词与 PACE/auto-tier 同族;SSP/hint 下 D 为上一拍(有界陈旧,D17);
+  // 矩阵全空 ⇒ 判非热点,与「无信息则直发」同向。
   if (c->cfg.sched == MOSAIC_SCHED_MOSAIC && c->eff_waves == 0) {
     uint64_t wmax = 0;
     std::vector<uint64_t> wcol(n, 0);

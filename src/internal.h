@@ -583,6 +583,7 @@ int  ctrl_send_tcp(Comm* c, int peer, const void* framed, uint32_t n);
 
 // verbs.cc(RDMA 数据面 + 控制面;data_plane=false 仅供无数据面调试形态)
 int  verbs_setup(Comm* c, bool data_plane);
+int  rdma_rx_slots(int slice_bytes);   // 每 pair 预投 recv 槽数(verbs.cc;W 流控规则用)
 void verbs_teardown(Comm* c);
 int  verbs_post_slice(Comm* c, int peer, const SliceHdr& h, int stage_slot);
 int  verbs_poll(Comm* c);

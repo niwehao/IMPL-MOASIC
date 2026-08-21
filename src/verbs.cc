@@ -40,7 +40,7 @@ namespace mosaic {
 // 默认按字节定量:窗口罩住 32MB 在途(小切片曾实测 8MB 窗把线速掐到 17.8%;
 // 32MB/pair 的超大传输下窗口不足 = 每片撞一次 RNR 退避)。上限 64 槽防止
 // 小 slice 下 host 槽池爆炸(64 × slice × peer 数)。
-static int rdma_rx_slots(int slice_bytes) {
+int rdma_rx_slots(int slice_bytes) {   // engine 的 W 规则也读(聚合接收窗)
   const char* e = getenv("MOSAIC_RDMA_RX_SLOTS");
   if (e && *e) return atoi(e);
   int n = (int)(((size_t)32 << 20) / (size_t)(slice_bytes > 0 ? slice_bytes : 1 << 20));
