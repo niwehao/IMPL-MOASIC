@@ -584,10 +584,9 @@ static uint32_t pc_key(Comm* c, const SliceHdr& h) {
   uint32_t sub = ((h.dst % K) + K - (h.src % K)) % K;
   return base * K + sub;
 }
-// 发送序:(wave,hop[,PC 色])结构序(PC 是决策语义)。曾试过结构序内
-// 再按 dst 热度降序(hot-pair-first):2×4 两个数据面各 24 格 A/B 全部
-// <0.5% = 噪声(raven-0819-verbs-plane)—— NIC 排干队列本身即空泡遮蔽,
-// 发送序不影响 makespan,已删。true = a 应排在 b 之前。
+// 发送序:(wave,hop[,PC 色])结构序(PC 是决策语义)。结构序内不再做任何
+// 热度排序:NIC 排干队列本身即空泡遮蔽,发送序不影响 makespan
+// (raven-0819-verbs-plane,24 格 A/B 全 <0.5% 噪声)。true = a 应排在 b 之前。
 static inline bool order_before(Comm* c, const SliceHdr& a, const SliceHdr& b) {
   return pc_key(c, a) < pc_key(c, b);
 }
@@ -1073,8 +1072,6 @@ static void coll_begin(Comm* c) {
   // 多分一波的代价随报文增大而急剧衰减 ⇒ **决定成本的不是波数本身,而是
   // 分完之后每个碎片还剩多大**:碎片 = 每对字节 ÷ (波数 × 走廊数),碎片一小,
   // 每片的固定开销(发起 + 发现 + 交付 + credit)就摊不薄。
-  // 这解释了为什么 AUTO_TIER 原来那条阶跃判据(mean_pair ≤1MB → W=2)在
-  // MoE 的真实尺度(~264KB/pair)上恰好选中最差档。
   //
   // **规则(凹函数,不是线性)**:
   //     W = clamp( round( sqrt( 每对字节 ÷ (目标碎片 × 生效走廊数) ) ), 1, cfg.waves )
@@ -1142,9 +1139,8 @@ static void coll_begin(Comm* c) {
   // decision-layer-0821.md §1):W 地形非单调且有共振(α1:W2=20.0ms、W3=56、
   // W4=29、W6=108,NCCL 37.2),静态公式不可靠;MoE 同形状每 iter 重复 24 次,
   // 在线样本白送。按形状签名记 EMA,从 cfg.waves 向下探测,劣化(>5%)档记入
-  // bad_mask 永久绕开;**探索下界 = QP 悬崖安全值**:每波跨机热列在途必须
-  // 装进对端聚合已投接收窗(rdma_rx_slots×slice×跨机 src 数;>384MB/波实测
-  // 两次 E1025 级联死)。全部输入为运行时量 + 本地观测(G.2 合规,零集群常数)。
+  // bad_mask 永久绕开;探索下界 = 1(QP 悬崖由传输层信用反压负责,见下方
+  // warm_wsafe 注释)。全部输入为运行时量 + 本地观测(G.2 合规,零集群常数)。
   if (c->cfg.sched == MOSAIC_SCHED_MOSAIC && c->eff_waves == 0) {
     uint64_t wmax = 0, wmax_x = 0;
     std::vector<uint64_t> wcol(n, 0), wcolx(n, 0);
@@ -1192,12 +1188,12 @@ static void coll_begin(Comm* c) {
     if (!(wmed > 0 && wmax >= 2 * wmed)) {
       c->eff_waves = 1;                          // 非热点:直发单波,不进搜索
     } else {
-      // 探索下界 = 1:QP 悬崖(E1025 级联死)的保护责任已移交传输层信用
-      // 反压(rx_retire 铸造闭环 + demand 感知 W0 突发钳,含节点聚合热判据;
-      // File/design-credit-backpressure-0821.md)。移交依据 = 占位 29438267
-      // 实测:α2 W=1 直发 59.2ms(NCCL 64.0)、α1 W=1 三连稳 39.6-39.8ms
-      // (NCCL 42.0),零 E1025、全校验过 —— 旧半聚合窗公式挡住的死点在
-      // 信用层已构造性消失,波数只剩性能语义,交给在线 arm 全域探索。
+      // 探索下界 = 1:QP 悬崖(E1025 级联死)由传输层信用反压负责 ——
+      // credit 只在接收端 rx_retire 铸造 + demand 感知 W0 突发钳(节点聚合
+      // 热判据),进水速率被排水速率闭环钳住,悬崖构造性不发生
+      // (File/design-credit-backpressure-0821.md;标定 = 29438267 实测
+      // α2 W=1 直发 59.2ms / α1 W=1 三连稳 39.6-39.8ms,零 E1025 全校验)。
+      // 波数只有性能语义,由在线 arm 全域探索。
       c->warm_wsafe = 1;
       // 形状签名:列和 log2 半档分桶 + 排序 hash(容忍 gating 抖动)
       std::vector<uint8_t> bk(n);
@@ -1376,7 +1372,8 @@ static void coll_try_finish(Comm* c) {
     MTRACE(TE_COLL_END, (uint32_t)c->coll_id, c->dst.total_recv, 0);
     c->st.completion_us = (c->coll_end_ns - c->coll_start_ns) / 1000.0;
     // W 在线自适应:喂 completion,8 样本一窗;劣化(>5%)档记 bad_mask 永久
-    // 绕开(共振档在线消化),否则向下探测;下界 = warm_wsafe(QP 悬崖)。
+    // 绕开(共振档在线消化),否则向下探测;下界 = warm_wsafe(恒 1,悬崖
+    // 保护在传输层信用反压)。
     if (c->warm_cur) {
       Comm::WaveArm& a = *c->warm_cur;
       const double ms = c->st.completion_us / 1000.0;

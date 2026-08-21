@@ -37,9 +37,9 @@
 namespace mosaic {
 
 // 每 peer 预投的数据 recv WR 数 = 发送端最多领先的 slice 数(在途上界)。
-// 默认按字节定量:窗口罩住 32MB 在途(小切片曾实测 8MB 窗把线速掐到 17.8%;
-// 32MB/pair 的超大传输下窗口不足 = 每片撞一次 RNR 退避)。上限 64 槽防止
-// 小 slice 下 host 槽池爆炸(64 × slice × peer 数)。
+// 默认按字节定量:窗口罩住 32MB 在途(标定:8MB 窗在小切片下实测把线速
+// 掐到 17.8%;32MB/pair 传输在窗口不足时每片撞一次 RNR 退避)。上限 64 槽
+// 防止小 slice 下 host 槽池爆炸(64 × slice × peer 数)。
 int rdma_rx_slots(int slice_bytes) {   // engine 的 W 规则也读(聚合接收窗)
   const char* e = getenv("MOSAIC_RDMA_RX_SLOTS");
   if (e && *e) return atoi(e);
@@ -171,12 +171,10 @@ static bool qp_connect(VerbsCtx* v, ibv_qp* qp, uint32_t my_psn, uint32_t rem_qp
   a.dest_qp_num = rem_qpn;
   a.rq_psn = rem_psn;
   a.max_dest_rd_atomic = 1;
-  // RNR 退避 0.16ms(编码 8)。历史:曾取最小档 0.01ms 治 32M 形态的 RNR
-  // 空转(raven-0819-verbs-plane);但 10µs 节拍在极端 incast 下变成重试
-  // **包频**风暴 —— 数百 WR × 100kHz 重试锤热 HCA,把热 rank 自己的出向
-  // 发包引擎饿死 ⇒ 它的 send 传输重试耗尽(E1025 status=12,死的总是热
-  // rank 的 SEND)。0.16ms + 发送端每节点在途帽(node_inflight)双管:
-  // RNR 变稀有事件,重试频率降 16×;空转税由帽内深度掩盖。
+  // RNR 退避 0.16ms(编码 8):信用反压下发送端不超过对端授权窗,RNR 是
+  // 稀有兜底事件,取高档防极端 incast 下重试包频锤热 HCA(标定:10µs 档
+  // 实测数百 WR × 100kHz 重试把热 rank 出向发包引擎饿死 ⇒ E1025 status=12;
+  // 0.16ms 使重试频率降 16×,空转税由窗内深度掩盖)。
   a.min_rnr_timer = 8;
   a.ah_attr.port_num = (uint8_t)v->port;
   if (rem.lid) {                  // IB:LID 路由(对端 lid 非 0 才可能)

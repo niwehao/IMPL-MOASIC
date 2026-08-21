@@ -53,7 +53,7 @@ struct SliceHdr {
   uint16_t wave;
   uint8_t corr, hop, nhops, flags;
   uint8_t path[4];        // path[0]=src … path[nhops]=dst
-  uint32_t crc;           // 槽使用代数 tag(历史布局位;偏移 30 有断言钉住)
+  uint32_t crc;           // 槽使用代数 tag(线格式布局位,偏移 30 由断言钉死)
   // **代际号 = coll_id 低 16 位**(坑 #48 的根治)。同步档里"当前 collective"
   // 天然唯一,所以老协议没带它;异步档一旦允许多代同时在网上,接收侧就再也
   // 分不清"上一代的迟到片"与"下一代的早到片" —— 而终跳的落点
@@ -65,8 +65,8 @@ struct SliceHdr {
 #pragma pack(pop)
 static_assert(sizeof(SliceHdr) == 36, "SliceHdr 必须是紧凑的 36 字节");
 static_assert(sizeof(SliceHdr) <= HDR_STRIDE, "SliceHdr 必须放得进头区");
-// SliceHdr 是线格式:字段偏移进过设备核硬编码(历史教训:中间插字段会静默
-// 挪动后续偏移,交付永久卡死且不报错)。用断言钉死布局。
+// SliceHdr 是线格式:字段偏移进过设备核硬编码 —— 中间插字段会静默挪动
+// 后续偏移,交付永久卡死且不报错。用断言钉死布局。
 static_assert(offsetof(SliceHdr, crc) == 30, "SliceHdr 线格式布局不可挪动");
 
 // 控制面报文类型。通道 A = 遥测(有界陈旧),通道 B = 策略广播(必须可靠,
@@ -376,7 +376,7 @@ struct Comm {
   int pc_k = 0;                    // 本次 collective 生效的 pair_color K
   // ── W 在线自适应(2026-08-21 设计 §1):按 demand 形状签名记忆各 W 档的
   // completion EMA,向下探测、劣化回退。全部本地观测(G.2 合规);
-  // 探索下界 = QP 悬崖安全值(W_safe),上界 = cfg.waves。
+  // 探索下界 = 1(悬崖保护在传输层信用反压),上界 = cfg.waves。
   struct WaveArm {
     uint64_t key = 0;            // 形状签名(列和 log2 分桶排序 hash)
     int cur_w = 0;               // 当前档
@@ -390,7 +390,7 @@ struct Comm {
   static constexpr int NWARM = 8;
   WaveArm warm[NWARM];
   WaveArm* warm_cur = nullptr;   // 本 coll 命中的 arm(finish 时喂 completion)
-  int warm_wsafe = 1;            // 本 coll 的安全下界(finish 时探测用)
+  int warm_wsafe = 1;            // 探索下界(恒 1;finish 时探测用)
   int pace_hot = -1;               // PACE:预测 straggler;-1 = 门未开
   // 发送序的热度表(coll_begin 由 demand 列和填充):dst 入向总字节。
   // hot-pair-first(方案 B):同 (wave,hop,PC) 结构序内,热 dst 的片先发 ——

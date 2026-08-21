@@ -207,8 +207,8 @@ void ledger_init(Comm* c) {
     c->ledger.cap_Bps[t.res(r, RES_NIC_DN)] = c->cfg.nic_gbps * 1e9 / 8.0;
     c->ledger.cap_Bps[t.res(r, RES_NV_UP)] = c->cfg.nv_gbps * 1e9 / 8.0;
     c->ledger.cap_Bps[t.res(r, RES_NV_DN)] = c->cfg.nv_gbps * 1e9 / 8.0;
-    // 每 rank 的 SPINE_UP 账已废弃(fabric 账改为 per-rail 聚合,见下);
-    // 该口的**物理**限速仍由 engine 的 buck[RES_SPINE_UP] 承担,与账本无关
+    // 每 rank 的 SPINE_UP 位 cap=0(spine 走 per-rail 聚合账,见下;
+    // cap<=0 的资源代价函数恒跳过)。该口的计数仍由 buck[RES_SPINE_UP] 承担
     c->ledger.cap_Bps[t.res(r, RES_SPINE_UP)] = 0;
   }
   // fabric 聚合账(per-rail 上/下行):额定 = spine_gbps(= 模拟器 taper 口径,
