@@ -1161,17 +1161,28 @@ static void coll_begin(Comm* c) {
       wmax = std::max(wmax, col);
       wmax_x = std::max(wmax_x, colx);
     }
-    // 信用反压 W0 覆盖(设计 §3.4):跨机列和 ≥ 2× 跨机列中位的 dst = 热列,
-    // 初始突发钳到 CREDIT_HOT_W0;其余保持全窗。判据与下方热形状判据同族,
+    // 信用反压 W0 覆盖(设计 §3.4):热判据 = 单列热 **或** 所在节点聚合热。
+    // 单列:跨机列和 ≥ 2× 跨机列中位;节点:成员列跨机和 ≥ 2× 节点中位 ——
+    // 排水瓶颈是节点级(HCA/host 通路共享),热节点上的小列(如 α1 的
+    // d13=44MB)不钳就是拥塞树的漏洞:29438267-2202 实测 α1 W1 边缘随机死,
+    // 四节点 port_xmit_wait 全暴涨(拥塞树扩散),热节点仅 d13 未钳。
     // 输入全部来自已交换的 demand 矩阵(SSP 残缺时列和偏小 → 判不出热 →
     // 退化全窗,只剩 retire 闭环保护,如实标注于设计 §3.4)。
     {
       std::vector<uint64_t> sx = wcolx;
       std::sort(sx.begin(), sx.end());
       const uint64_t medx = sx[n / 2];
+      const int G = c->cfg.gpus_per_host, H = n / G;
+      std::vector<uint64_t> ncx(H, 0);
+      for (int d2 = 0; d2 < n; d2++) ncx[c->topo.host(d2)] += wcolx[d2];
+      std::vector<uint64_t> ns = ncx;
+      std::sort(ns.begin(), ns.end());
+      const uint64_t nmed = ns[H / 2];
       if (medx > 0)
         for (int d2 = 0; d2 < n; d2++)
-          if (d2 != me && !c->topo.same_host(d2, me) && wcolx[d2] >= 2 * medx)
+          if (d2 != me && !c->topo.same_host(d2, me) &&
+              (wcolx[d2] >= 2 * medx ||
+               (nmed > 0 && ncx[c->topo.host(d2)] >= 2 * nmed)))
             c->cr_w0[d2] = credit_hot_w0();
     }
     std::vector<uint64_t> ws = wcol;
@@ -1181,19 +1192,13 @@ static void coll_begin(Comm* c) {
     if (!(wmed > 0 && wmax >= 2 * wmed)) {
       c->eff_waves = 1;                          // 非热点:直发单波,不进搜索
     } else {
-      // 安全下界(悬崖 = QP 级联死,宁高勿低)
-      const int rem_peers = std::max(1, c->cfg.nranks - c->cfg.gpus_per_host);
-      // 安全下界取**半**聚合窗:悬崖 = 热节点 HCA/host 排水滞流 → 链路信用
-      // 级联(xmit_wait 暴涨、RNR≈0,与 0819 GDR-write 双稳态同款平台现象;
-      // 29430096 计数器实锤)。全窗边界实测有死点(α2 W3=327MB/波死、
-  // α1 W2=235MB/波稳),半窗把全部实测死点挡在界外 —— 宁多分一波,
-      // 悬崖是 QP 级联死不是慢一点。
-      const uint64_t win = (uint64_t)rdma_rx_slots(c->cfg.slice_bytes) *
-                           (uint64_t)c->cfg.slice_bytes * (uint64_t)rem_peers / 2;
-      int wsafe = win ? (int)((wmax_x + win - 1) / win) : 1;
-      if (wsafe < 1) wsafe = 1;
-      if (wsafe > c->cfg.waves) wsafe = c->cfg.waves;
-      c->warm_wsafe = wsafe;
+      // 探索下界 = 1:QP 悬崖(E1025 级联死)的保护责任已移交传输层信用
+      // 反压(rx_retire 铸造闭环 + demand 感知 W0 突发钳,含节点聚合热判据;
+      // File/design-credit-backpressure-0821.md)。移交依据 = 占位 29438267
+      // 实测:α2 W=1 直发 59.2ms(NCCL 64.0)、α1 W=1 三连稳 39.6-39.8ms
+      // (NCCL 42.0),零 E1025、全校验过 —— 旧半聚合窗公式挡住的死点在
+      // 信用层已构造性消失,波数只剩性能语义,交给在线 arm 全域探索。
+      c->warm_wsafe = 1;
       // 形状签名:列和 log2 半档分桶 + 排序 hash(容忍 gating 抖动)
       std::vector<uint8_t> bk(n);
       for (int d2 = 0; d2 < n; d2++) {
@@ -1217,7 +1222,6 @@ static void coll_begin(Comm* c) {
         arm->best_w = c->cfg.waves;
       }
       arm->last_ns = now_ns();
-      if (arm->cur_w < wsafe) arm->cur_w = wsafe;   // 需求变大时抬回安全线
       c->eff_waves = arm->cur_w;
       c->warm_cur = arm;
     }
