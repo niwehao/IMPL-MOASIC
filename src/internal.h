@@ -74,7 +74,11 @@ static_assert(offsetof(SliceHdr, crc) == 30, "SliceHdr 线格式布局不可挪�
 enum CtrlType : uint8_t {
   CT_HELLO = 1, CT_DEMAND = 2, CT_BARRIER = 3, CT_POLICY = 4,
   CT_TELEM = 5, CT_STATS = 6, CT_FIN = 7, CT_AG = 8,
+  // 接收端信用回流(File/design-credit-backpressure-0821.md):body = uint64
+  // 累计授权 slice 数(绝对值,收端取 max ⇒ verbs/TCP 混跑与乱序安全)
+  CT_CREDIT = 9,
 };
+static constexpr uint8_t CT_MAX = CT_CREDIT;   // ctrl 报文类型校验上界
 
 #pragma pack(push, 1)
 struct CtrlHdr {
@@ -353,6 +357,21 @@ struct Comm {
   // 体积"不是死亡预测量(29429499 α2 W5=196MB/波死 vs α1 W2=293MB/波稳),
   // 只有源头限流能移除悬崖 —— 悬崖消失后 W 在线探索才全域安全。
   uint64_t node_inflight[MAX_RANKS] = {0};   // 按 host id 索引
+  // ── 接收端信用反压(2026-08-21,File/design-credit-backpressure-0821.md):
+  // credit 只由接收端 rx_retire(交付完成、槽补投)铸造 ⇒ 稳态进水率 =
+  // 真实排水率,RNR/链路信用级联(坑 #58 的 E1025 悬崖)构造性消失。
+  // 单位 = slice(一片占一个预投 recv 槽)。累计计数器协议,全部只在
+  // event 线程读写(单线程事件循环,无锁)。
+  uint64_t cr_sent[MAX_RANKS] = {0};        // 发送侧:已派发给 peer 的 slice 累计
+  uint64_t cr_limit[MAX_RANKS] = {0};       // 发送侧:收到的授权累计(init=nrx,verbs_setup)
+  uint64_t cr_base_sent[MAX_RANKS] = {0};   // 本 coll 起点快照(coll_begin)
+  uint64_t cr_base_limit[MAX_RANKS] = {0};
+  // 本 coll 对 peer 的初始突发额度(slice):uniform=nrx(全窗,行为不变);
+  // 热目的列 = MOSAIC_CREDIT_HOT_W0(闭环只管稳态,初始突发要靠 demand
+  // 矩阵预清 —— NCCL/EQDS 做不到的点,设计 §3.4)
+  uint64_t cr_w0[MAX_RANKS] = {0};
+  uint64_t cr_bank[MAX_RANKS] = {0};        // 接收侧:已 retire 未回流的 credit
+  uint64_t cr_granted[MAX_RANKS] = {0};     // 接收侧:已回流累计(init=nrx)
 
   int pc_k = 0;                    // 本次 collective 生效的 pair_color K
   // ── W 在线自适应(2026-08-21 设计 §1):按 demand 形状签名记忆各 W 档的

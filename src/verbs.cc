@@ -409,6 +409,12 @@ int verbs_setup(Comm* c, bool data_plane) {
     if (data_plane) {
       if (!qp_connect(v, vp.qp, mine.psn, rem.qp_num, rem.psn, rem)) return -1;
       for (int i = 0; i < nrx; i++) if (!post_recv(c, p, i)) return -1;
+      // 信用反压初始授权 = 全窗 nrx(两侧由同一 rdma_rx_slots 公式导出,
+      // 天然一致):cr_limit 是发送侧对 p 的额度,cr_granted 是接收侧
+      // 对 p 已回流的累计基准(首条 CT_CREDIT 携带 nrx+bank,单调)。
+      c->cr_limit[p] = (uint64_t)nrx;
+      c->cr_granted[p] = (uint64_t)nrx;
+      c->cr_w0[p] = (uint64_t)nrx;
     }
     if (!qp_connect(v, vp.qp_ctrl, mine.ctrl_psn, rem.ctrl_qp_num, rem.ctrl_psn, rem))
       return -1;
@@ -567,7 +573,7 @@ int verbs_poll(Comm* c) {
       CtrlHdr ch;
       memcpy(&ch, slot, sizeof(ch));
       if (ch.len >= sizeof(CtrlHdr) && ch.len <= (uint32_t)VerbsCtx::CTRL_SLOT &&
-          ch.type >= 1 && ch.type <= 8) {
+          ch.type >= 1 && ch.type <= CT_MAX) {
         on_ctrl_msg(c, ch.rank, ch, slot + sizeof(CtrlHdr));
       } else {
         MLOG_ERR("E1026 ctrl 报文头不识别(r%d)", peer);

@@ -889,6 +889,23 @@ static uint8_t corridor_intent_bit(Comm* c) {
 }
 
 // ─────────────────────────────────────────────────────────── collective 起止
+// MOSAIC_CREDIT_HOT_W0:热目的列的每 src 初始突发额度(slice;容量类,不改
+// 数据面走法)。默认 2:4×4 形态 12 跨机 src × 2 × 1MB slice = 24MB 初始
+// 站队,与 node_inflight 帽和 NCCL 每对 ~4MB 槽环同量级(Raven α2 悬崖
+// 标定,File/design-credit-backpressure-0821.md §3.4)。调大 = 热列首波
+// 流水更满但初始突发更逼近排水悬崖;调小 = 保护更强、深斜首波更慢。
+// 稳态吞吐与它无关(稳态窗随 credit 回流自增长)。
+static uint64_t credit_hot_w0() {
+  static uint64_t v = 0;
+  if (!v) {
+    const char* e = getenv("MOSAIC_CREDIT_HOT_W0");
+    long w = e && *e ? atol(e) : 2;
+    if (w < 1) w = 1;
+    v = (uint64_t)w;
+  }
+  return v;
+}
+
 static void coll_begin(Comm* c) {
   g_ev_phase = 16;
   c->ph_submit_snap = c->ph_submit_ns;
@@ -930,6 +947,17 @@ static void coll_begin(Comm* c) {
   es->peer_acc.assign(n, std::vector<uint64_t>(c->topo.nres(), 0));
   es->fin_got = 0;
   es->fin_sent = false;
+
+  // 信用反压:本 coll 突发钳基线快照 + W0 复位为全窗(热目的列在下方 W
+  // 自适应块内按 demand 列覆盖;File/design-credit-backpressure-0821.md §3.4)
+  {
+    const uint64_t cr_nrx = (uint64_t)rdma_rx_slots(c->cfg.slice_bytes);
+    for (int p = 0; p < n; p++) {
+      c->cr_base_sent[p] = c->cr_sent[p];
+      c->cr_base_limit[p] = c->cr_limit[p];
+      c->cr_w0[p] = cr_nrx;
+    }
+  }
 
   DstCtrl& d = c->dst;
   // **不能整体重置**:对端可能在我完成 demand allgather 之前就开始发本次
@@ -1119,7 +1147,7 @@ static void coll_begin(Comm* c) {
   // 两次 E1025 级联死)。全部输入为运行时量 + 本地观测(G.2 合规,零集群常数)。
   if (c->cfg.sched == MOSAIC_SCHED_MOSAIC && c->eff_waves == 0) {
     uint64_t wmax = 0, wmax_x = 0;
-    std::vector<uint64_t> wcol(n, 0);
+    std::vector<uint64_t> wcol(n, 0), wcolx(n, 0);
     for (int d2 = 0; d2 < n; d2++) {
       uint64_t col = 0, colx = 0;
       for (int s2 = 0; s2 < n; s2++) {
@@ -1129,8 +1157,22 @@ static void coll_begin(Comm* c) {
         if (!c->topo.same_host(s2, d2)) colx += v;
       }
       wcol[d2] = col;
+      wcolx[d2] = colx;
       wmax = std::max(wmax, col);
       wmax_x = std::max(wmax_x, colx);
+    }
+    // 信用反压 W0 覆盖(设计 §3.4):跨机列和 ≥ 2× 跨机列中位的 dst = 热列,
+    // 初始突发钳到 CREDIT_HOT_W0;其余保持全窗。判据与下方热形状判据同族,
+    // 输入全部来自已交换的 demand 矩阵(SSP 残缺时列和偏小 → 判不出热 →
+    // 退化全窗,只剩 retire 闭环保护,如实标注于设计 §3.4)。
+    {
+      std::vector<uint64_t> sx = wcolx;
+      std::sort(sx.begin(), sx.end());
+      const uint64_t medx = sx[n / 2];
+      if (medx > 0)
+        for (int d2 = 0; d2 < n; d2++)
+          if (d2 != me && !c->topo.same_host(d2, me) && wcolx[d2] >= 2 * medx)
+            c->cr_w0[d2] = credit_hot_w0();
     }
     std::vector<uint64_t> ws = wcol;
     std::sort(ws.begin(), ws.end());
@@ -1591,6 +1633,14 @@ void on_ctrl_msg(Comm* c, int peer, const CtrlHdr& h, const void* body) {
       }
       break;
     }
+    case CT_CREDIT: {  // 信用回流:绝对累计授权,取 max(乱序/双通路安全)
+      if (h.len >= sizeof(CtrlHdr) + 8) {
+        uint64_t cum;
+        memcpy(&cum, body, 8);
+        if (cum > c->cr_limit[peer]) c->cr_limit[peer] = cum;
+      }
+      break;
+    }
     default: break;
   }
 }
@@ -1705,9 +1755,23 @@ static void pump_one_queue(Comm* c, std::deque<ReadySlice>& q, bool via_nic) {
     const int peer = r.h.path[r.h.hop + 1];
     // 每目的节点在途上限:超限的片转到队尾让别的节点先走(热节点限流不
     // HOL 冷节点;发送序已证不影响 makespan,hot-first A/B 全噪声)
-    if (via_nic &&
-        c->node_inflight[c->topo.host(peer)] + r.h.len > node_inflight_cap()) {
-      if (++rot > q.size()) return;          // 全队都被限 = 等完成事件
+    bool gated_out = false;
+    if (via_nic) {
+      gated_out = c->node_inflight[c->topo.host(peer)] + r.h.len > node_inflight_cap();
+      // 信用反压发送约束(File/design-credit-backpressure-0821.md §3.2):
+      // ①物理窗:派发累计不许超过对端授权累计(cr_limit 只在对端 retire 后
+      //   增长 ⇒ 每个 SEND 必有已补投的 recv 槽,RNR 构造性消失);
+      // ②本 coll 突发钳:本 coll 派发 ≤ W0 + 本 coll 内回流(初始突发被
+      //   demand 感知的 W0 罩住)。uniform 时 W0=nrx ⇒ ②恒不紧于①,行为不变。
+      if (!gated_out && c->use_verbs) {
+        const uint64_t grow = c->cr_limit[peer] - c->cr_base_limit[peer];
+        const uint64_t used = c->cr_sent[peer] - c->cr_base_sent[peer];
+        gated_out = (c->cr_sent[peer] >= c->cr_limit[peer]) ||
+                    (used >= c->cr_w0[peer] + grow);
+      }
+    }
+    if (gated_out) {
+      if (++rot > q.size()) return;          // 全队都被限 = 等完成/credit 事件
       ReadySlice cp = r;
       q.pop_front();
       q.push_back(cp);
@@ -1737,6 +1801,7 @@ static void pump_one_queue(Comm* c, std::deque<ReadySlice>& q, bool via_nic) {
         return;                                 // 描述符环满 = 背压
       }
       t.stage_slot = slot;
+      c->cr_sent[peer]++;                       // 信用:派发点记账(kdesc 路径)
       MTRACE(TE_SLICE_POST, ((uint32_t)r.h.src << 16) | r.h.dst, r.h.off,
              ((uint64_t)r.h.len << 8) | r.h.hop);
       KEntry e; e.kind = 4; e.t = t;
@@ -1829,6 +1894,7 @@ static void pump_one_queue(Comm* c, std::deque<ReadySlice>& q, bool via_nic) {
       t.shm_ring = peer;
       hdst = pay;
     }
+    if (via_nic) c->cr_sent[peer]++;            // 信用:派发点记账(CE 路径)
     MTRACE(TE_SLICE_POST, ((uint32_t)r.h.src << 16) | r.h.dst, r.h.off,
            ((uint64_t)r.h.len << 8) | r.h.hop);
     copy_async(c, hdst, r.gpu_src, r.h.len, cudaMemcpyDeviceToHost, c->stream_d2h);
@@ -1902,7 +1968,10 @@ static void rx_retire(Comm* c, InflightRx& r) {
   if (r.src_shm_ring >= 0) shm_ring_pop(c->rx_ring[r.src_shm_ring]);
   if (r.src_stage >= 0) stage_release(c, r.src_stage);
   if (r.src_verbs >= 0) {
-    verbs_repost(c, r.src_verbs);                      // 不补投 = RNR 背压
+    verbs_repost(c, r.src_verbs);
+    // 信用铸造点(唯一):交付完成 + 槽已补投 = 真实排水一片。回流由
+    // pump_credits 合批;稳态下发送端进水率被这里的节拍闭环钳住。
+    c->cr_bank[r.src_verbs >> 20]++;
     MTRACE(TE_REPOST, ((uint32_t)r.h.src << 16) | r.h.dst, r.h.off,
            ((uint64_t)r.h.len << 8) | r.h.hop);   // credit 释放时刻
   }
@@ -2208,6 +2277,22 @@ static void watchdog(Comm* c) {
   MLOG_ERR("E2002 watchdog 环状态: %s", rb);
 }
 
+// 信用回流(接收端;File/design-credit-backpressure-0821.md §3.3):rx_retire
+// 铸造的 credit 合批发回。同一圈内的多次 retire 自然合为一条报文;ctrl 走
+// verbs SEND(单程 ~5µs),池干涸自动回退 TCP。发送失败 bank 留到下圈,
+// 累计语义保证 credit 不丢不重。
+static void pump_credits(Comm* c) {
+  if (!c->use_verbs) return;
+  for (int p = 0; p < c->cfg.nranks; p++) {
+    if (!c->cr_bank[p]) continue;
+    uint64_t cum = c->cr_granted[p] + c->cr_bank[p];
+    if (ctrl_send(c, p, CT_CREDIT, 0, &cum, 8) == 0) {
+      c->cr_granted[p] = cum;
+      c->cr_bank[p] = 0;
+    }
+  }
+}
+
 static void pump_protocol(Comm* c) {
   auto* es = ES(c);
   uint64_t t = now_ns();
@@ -2482,7 +2567,7 @@ static void event_loop(Comm* c) {
     seg(4); pump_ready(c);
     seg(5); pump_tx(c);
     seg(6); pump_rx(c);
-    seg(7); pump_protocol(c);
+    seg(7); pump_credits(c); pump_protocol(c);
     // 消费者核 in-vivo 服务曲线采样(200µs;孤立微基准 20+GB/s vs 引擎语境
     // ~2-4GB/s 的落差归因用,local-0821-kcons-rate)
     if (g_trace_on && c->kdesc_active) {
