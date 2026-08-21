@@ -278,6 +278,7 @@ bool zerostream_arm(Comm* c) {
   }
   return true;
 }
+static void maybe_open_gate_early(Comm* c);
 // 描述符推入。false = 环满(调用方退回旧拷贝路径 —— credit 前缀游标容忍
 // 乱序标记(R15b),两路混用安全)
 static bool kdesc_push(Comm* c, uint64_t src_dev, void* dst_dev, uint64_t len) {
@@ -976,6 +977,7 @@ static void coll_begin(Comm* c) {
   // 流序档(gated)禁止流操作 ⇒ 交消费者核,但要先等 input_ready 标志
   // (cudaLaunchHostFunc 回调写 pinned,= 生产者已完成),由 try_self_copy 补推。
   c->self_copy_pending = false;
+  c->self_kq_pending = 0;                 // 防御复位(正常路径 coll 末即为 0)
   if (c->scounts[me]) {
     if (c->kdesc_active) {
       c->self_copy_pending = true;      // try_self_copy 立即/稍后推(输入门在核内)
@@ -1816,6 +1818,7 @@ static void rx_retire(Comm* c, InflightRx& r) {
       es->fin_sent = true;
       ctrl_bcast(c, CT_FIN, (uint16_t)(c->coll_id & 0xFFFF), nullptr, 0);
     }
+    maybe_open_gate_early(c);
   } else {
     // hop k 完整落到中转 GPU 之后,才允许发 hop k+1(chunk availability 铁律)
     SliceHdr nh = r.h;
@@ -1857,7 +1860,9 @@ static void pump_rx(Comm* c) {
         }
         if (e.t.relay_slot >= 0) c->relay_free.push_back(e.t.relay_slot);
       } else if (e.kind == 2) {
-        // 纯拷贝(self-copy 等):无收编动作
+        // 纯拷贝(self-copy):清在途计数,自拷贝可能是开门前最后一块
+        if (c->self_kq_pending > 0) c->self_kq_pending--;
+        maybe_open_gate_early(c);
       } else if (e.kind == 0) {
         rx_retire(c, e.r);
       } else {
@@ -1913,7 +1918,23 @@ static void try_self_copy(Comm* c) {
   if (!kdesc_push(c, ssrc, sdst, c->scounts[me])) return;   // 环满,下轮再试
   KEntry e; e.kind = 2;
   es->kq.push_back(e);
+  c->self_kq_pending++;
   c->self_copy_pending = false;
+}
+
+// ── recv 即开门(2026-08-21;每 rank 完成结构优化):torch 语义下门只需保证
+// recvbuf 就绪 —— sendbuf 由 python 侧 _inflight 引用持到下一次调用,不会被
+// allocator 复用;残余发送/中转在引擎后台排空,下一次 submit 的 wait_coll
+// 兜底闭合(一代在飞不破)。skew 下冷 dst 因此不再陪热 dst 等到 makespan
+// (29425220-025934 实测:NCCL 冷 rank 也要等 ~makespan,因为它的完成含发送
+// 排空 —— 这是对 NCCL 的结构性差异轴)。安全前提:①total_recv 只在拷贝完成
+// 后计(rx_retire = kdesc done 前缀;DLV = 对端核完成后加账);②自拷贝
+// (不在 expect 里)单独用 self_kq_pending 等清零;③门 flag 是纯 pinned 写。
+static void maybe_open_gate_early(Comm* c) {
+  if (!c->gated || !c->done_flag_host) return;
+  if (c->self_copy_pending || c->self_kq_pending > 0) return;
+  if (c->total_recv_expect > 0 && c->dst.total_recv < c->total_recv_expect) return;
+  __atomic_store_n((uint32_t*)c->done_flag_host, (uint32_t)c->coll_id, __ATOMIC_RELEASE);
 }
 
 // dev-pipe2 泵:①input 就绪后向机内各 src 发布本 coll 的 recv 窗口(SHM 写,
@@ -1948,6 +1969,7 @@ static void pump_devpipe(Comm* c) {
       es->fin_sent = true;
       ctrl_bcast(c, CT_FIN, (uint16_t)(c->coll_id & 0xFFFF), nullptr, 0);
     }
+    maybe_open_gate_early(c);
   }
 }
 

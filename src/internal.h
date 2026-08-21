@@ -449,6 +449,7 @@ struct Comm {
   void* gate_mod = nullptr;         // 自旋门核 CUmodule(PTX JIT)
   void* gate_fn = nullptr;
   bool self_copy_pending = false;   // 坑 #51:自拷贝等 input_ready 后交消费者核
+  int self_kq_pending = 0;          // 在途自拷贝 kdesc 数(recv-即-开门要等它清零)
   // S3 方案 N:GPU 消费者内核 —— host 只写 pinned 描述符,交付拷贝与
   // 完成判定全在设备(契约见 consumer_kernel.cu)。
   struct KDesc { uint64_t src, dst, len, pad; };
