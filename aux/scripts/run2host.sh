@@ -33,12 +33,12 @@ trap cleanup EXIT INT TERM
 cleanup; sleep 0.3
 # 远端 rank G..2G-1
 $SSH "cd $REPO && for ((r=$G;r<$N;r++)); do setsid nohup env $COMMON MOSAIC_RANK=\$r \
-      timeout $TMO ./build/bench_a2a $* > /tmp/mosaic_rank\$r.log 2>&1 < /dev/null & done" >/dev/null 2>&1 &
+      timeout $TMO ./aux/build/bench_a2a $* > /tmp/mosaic_rank\$r.log 2>&1 < /dev/null & done" >/dev/null 2>&1 &
 sleep 1.5
 # 本机 rank 0..G-1
 pids=()
 for ((r=0;r<G;r++)); do
-  env $COMMON MOSAIC_RANK=$r timeout $TMO ./build/bench_a2a "$@" > /tmp/mosaic_rank$r.log 2>&1 & pids+=($!)
+  env $COMMON MOSAIC_RANK=$r timeout $TMO ./aux/build/bench_a2a "$@" > /tmp/mosaic_rank$r.log 2>&1 & pids+=($!)
 done
 rc=0; for p in "${pids[@]}"; do wait $p || rc=$?; done
 cat /tmp/mosaic_rank0.log

@@ -5,7 +5,7 @@
 # 用法:在有合适 nvcc 的机器上(推荐 Raven 登录节点):
 #   bash tools/gen_consumer_ptx.sh
 set -eu
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 nvcc -ptx -arch=compute_80 -o /tmp/mosaic_consumer_$$.ptx src/consumer_kernel.cu
 {
   echo "// 自动生成:tools/gen_consumer_ptx.sh(nvcc 12.6 -ptx -arch=compute_80,"

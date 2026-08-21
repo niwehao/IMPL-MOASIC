@@ -25,11 +25,11 @@ trap cleanup EXIT INT TERM
 cleanup; sleep 0.3
 
 $SSH "cd $REPO && setsid nohup env $E NVSHMEM_HCA_LIST=$HCA_REMOTE:1 \
-      ./build/test_devpipe --rank 1 --peer 192.168.100.2 --port $PORT $* \
+      ./aux/build/test_devpipe --rank 1 --peer 192.168.100.2 --port $PORT $* \
       > /tmp/devpipe_r1.log 2>&1 < /dev/null &" >/dev/null 2>&1 &
 sleep 2
 cd "$REPO" && env $E NVSHMEM_HCA_LIST=$HCA_LOCAL:1 \
-  timeout "${TMO:-300}" ./build/test_devpipe --rank 0 --peer 192.168.100.2 --port $PORT "$@" &
+  timeout "${TMO:-300}" ./aux/build/test_devpipe --rank 0 --peer 192.168.100.2 --port $PORT "$@" &
 LOCAL_PID=$!
 wait $LOCAL_PID; rc=$?
 [ "${VERBOSE:-0}" = 1 ] && { echo "--- rank1 ---"; $SSH "tail -8 /tmp/devpipe_r1.log"; }

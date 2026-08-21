@@ -16,7 +16,7 @@ SSH $GPU01_SSH "mkdir -p $IMPL"
 # 例外 fast-rt/FAST/nvidia/libflash.so —— 那个远端不重建,直接用同步过去的。
 rsync -a --info=stats1 -e "ssh -o BatchMode=yes" --delete \
   --exclude '.git' --exclude '__pycache__' --exclude '*.pyc' \
-  --exclude 'mosaic-rt/build' --exclude 'mosaic-rt/src/*.o' --exclude 'mosaic-rt/src/*.d' \
+  --exclude 'mosaic-rt/aux/build' --exclude 'mosaic-rt/src/*.o' --exclude 'mosaic-rt/src/*.d' \
   --exclude 'mosaic-rt/results' --exclude 'fast-rt/FAST/nvidia/build' \
   "$IMPL/" "$GPU01_SSH:$IMPL/"
 

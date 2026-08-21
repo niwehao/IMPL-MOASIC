@@ -10,7 +10,7 @@ pids=()
 cleanup() { for p in "${pids[@]:-}"; do kill -9 $p 2>/dev/null; done; rm -f /dev/shm/mosaic_${MOSAIC_JOB}_* 2>/dev/null; }
 trap cleanup EXIT INT TERM
 for ((r=0;r<N;r++)); do
-  MOSAIC_RANK=$r timeout $TMO ./build/bench_a2a "$@" > /tmp/mosaic_r$r.log 2>&1 & pids+=($!)
+  MOSAIC_RANK=$r timeout $TMO ./aux/build/bench_a2a "$@" > /tmp/mosaic_r$r.log 2>&1 & pids+=($!)
 done
 rc=0
 for p in "${pids[@]}"; do wait $p || rc=$?; done

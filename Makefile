@@ -11,25 +11,25 @@ CXX       ?= g++
 # 编辑过的 .cc 会重编,其余 .o 仍按**旧的 struct 布局**访问 Comm,写进错位的偏移。
 # 症状是随机的堆损坏 / glibc mutex 断言,完全无法从症状反推(实测踩过,见 log.md 坑 #4)。
 CXXFLAGS  := -O2 -g -std=c++17 -msse4.2 -Wall -Wno-unused-variable -Wno-unused-but-set-variable \
-             -MMD -MP -fPIC -Iinclude -Isrc -I$(CUDA_ROOT)/include
+             -MMD -MP -fPIC -Iaux/include -Isrc -I$(CUDA_ROOT)/include
 LDFLAGS   := -L$(CUDA_ROOT)/lib64 -lcudart -libverbs -lrt -lpthread -Wl,-rpath,$(CUDA_ROOT)/lib64
 
 SRC   := src/util.cc src/topo.cc src/net.cc src/engine.cc src/verbs.cc src/api.cc \
          src/erpc_ctrl.cc
 OBJ   := $(SRC:.cc=.o)
-BUILD := build
+BUILD := aux/build
 
 all: $(BUILD)/libmosaic.so $(BUILD)/bench_a2a $(BUILD)/test_topo $(BUILD)/replay_core_test $(BUILD)/test_kcons
 
-$(BUILD)/replay_core_test: tests/replay_core_test.cc $(BUILD)/libmosaic.so | $(BUILD)
+$(BUILD)/replay_core_test: aux/tests/replay_core_test.cc $(BUILD)/libmosaic.so | $(BUILD)
 	$(CXX) $(CXXFLAGS) $< -o $@ -L$(BUILD) -lmosaic $(LDFLAGS) -Wl,-rpath,$(abspath $(BUILD))
 
 # S3 二期消费者内核独立单测(单 GPU,无网络;JIT 同一份嵌入 PTX)
-$(BUILD)/test_kcons: tests/test_kcons.cc src/consumer_kernel_ptx.h | $(BUILD)
+$(BUILD)/test_kcons: aux/tests/test_kcons.cc src/consumer_kernel_ptx.h | $(BUILD)
 	$(CXX) $(CXXFLAGS) $< -o $@ $(LDFLAGS)
 
 # 平台探针:常驻核在场时哪些 host CUDA API 死锁(坑 #35 归因;不进 regression)
-$(BUILD)/test_persist_sync: tests/test_persist_sync.cc | $(BUILD)
+$(BUILD)/test_persist_sync: aux/tests/test_persist_sync.cc | $(BUILD)
 	$(CXX) $(CXXFLAGS) $< -o $@ $(LDFLAGS)
 
 $(BUILD):
@@ -41,10 +41,10 @@ $(BUILD):
 $(BUILD)/libmosaic.so: $(OBJ) | $(BUILD)
 	$(CXX) -shared -o $@ $(OBJ) $(LDFLAGS) $(ERPC_LDFLAGS)
 
-$(BUILD)/bench_a2a: bench/bench_a2a.cc $(BUILD)/libmosaic.so | $(BUILD)
+$(BUILD)/bench_a2a: aux/bench/bench_a2a.cc $(BUILD)/libmosaic.so | $(BUILD)
 	$(CXX) $(CXXFLAGS) $< -o $@ -L$(BUILD) -lmosaic $(LDFLAGS) -Wl,-rpath,$(abspath $(BUILD))
 
-$(BUILD)/test_topo: tests/test_topo.cc src/topo.cc src/util.cc | $(BUILD)
+$(BUILD)/test_topo: aux/tests/test_topo.cc src/topo.cc src/util.cc | $(BUILD)
 	$(CXX) $(CXXFLAGS) $^ -o $@ -lpthread -L$(CUDA_ROOT)/lib64 -lcudart -Wl,-rpath,$(CUDA_ROOT)/lib64
 
 # ── 控制面兼容档:eRPC over DPDK(erpc_ctrl.cc)。
@@ -58,7 +58,7 @@ $(BUILD)/test_topo: tests/test_topo.cc src/topo.cc src/util.cc | $(BUILD)
 # 链接用动态库 + 绝对路径 rpath —— DPDK 程序要 setcap cap_net_raw,而 setcap
 # 后内核进 secure-execution mode 会清空 LD_LIBRARY_PATH;绝对路径 rpath 不受
 # 影响,是这里唯一能同时满足「库找得到」和「有 cap」的链接方式。
-# eRPC 上游源码是独立 clone(不在本仓库),须先打 third_party/erpc_raven.patch ——
+# eRPC 上游源码是独立 clone(不在本仓库),须先打 aux/third_party/erpc_raven.patch ——
 # 不打补丁编出来的 eRPC 在非 root / 无 hugepage / 与内核网络共存的环境下跑不起来。
 # 重建步骤写在那个补丁文件的头部。
 ERPC_DIR    ?= $(abspath ../../Doc/Code/eRPC)

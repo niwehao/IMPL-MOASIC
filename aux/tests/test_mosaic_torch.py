@@ -4,7 +4,7 @@
   1) mt.all_to_all_single 前向;2) autograd backward(= splits 转置的 a2a);
   3) 非均匀 splits 与空行(MoE dispatch 真实形态)。
 
-用法:MT_BACKEND=mosaic bash baseline-rt/run2.sh mosaic-rt/tests/test_mosaic_torch.py
+用法:MT_BACKEND=mosaic bash baseline-rt/run2.sh mosaic-rt/aux/tests/test_mosaic_torch.py
 """
 import os
 import sys
