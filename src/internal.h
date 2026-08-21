@@ -349,6 +349,23 @@ struct Comm {
   std::vector<uint8_t> peer_det;   // [rank] 最新 det_state(quorum 全域计数用)
   int nic_tx_outstanding = 0;      // 在途 NIC 发送数(检测器 busy 判定)
   int pc_k = 0;                    // 本次 collective 生效的 pair_color K
+  // ── W 在线自适应(2026-08-21 设计 §1):按 demand 形状签名记忆各 W 档的
+  // completion EMA,向下探测、劣化回退。全部本地观测(G.2 合规);
+  // 探索下界 = QP 悬崖安全值(W_safe),上界 = cfg.waves。
+  struct WaveArm {
+    uint64_t key = 0;            // 形状签名(列和 log2 分桶排序 hash)
+    int cur_w = 0;               // 当前档
+    int best_w = 0;
+    double best_ms = 0;          // 已知最优档的 EMA
+    double ema_ms = 0;           // 当前档 EMA(α=0.3)
+    int samples = 0;             // 当前档样本数
+    uint16_t bad_mask = 0;       // 实测劣化的 W 档位图(在线绕开共振档)
+    uint64_t last_ns = 0;        // LRU
+  };
+  static constexpr int NWARM = 8;
+  WaveArm warm[NWARM];
+  WaveArm* warm_cur = nullptr;   // 本 coll 命中的 arm(finish 时喂 completion)
+  int warm_wsafe = 1;            // 本 coll 的安全下界(finish 时探测用)
   int pace_hot = -1;               // PACE:预测 straggler;-1 = 门未开
   // 发送序的热度表(coll_begin 由 demand 列和填充):dst 入向总字节。
   // hot-pair-first(方案 B):同 (wave,hop,PC) 结构序内,热 dst 的片先发 ——

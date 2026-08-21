@@ -1108,27 +1108,72 @@ static void coll_begin(Comm* c) {
              c->coll_id, (unsigned long long)per_pair,
              (unsigned long long)(frag >> 10), cc, ratio, eff_W(c));
   }
-  // ── W 形态自适应(2026-08-21 默认;AUTO_TIER/WAVE_FRAG 显式设时优先):
-  //   非热点列 → W=1(多波在直发形态是纯税:8M uniform W1 打平 NCCL vs W6 5×;
-  //   小报文 W 是 RTT 叠加);热点列 → cfg.waves(波 = incast 流控)。
-  // 定量约束(29425220 全实测;静态窗口公式因 W3 共振暂不落地,在线自适应待做):
-  //   安全悬崖:每波跨机热列在途 ≤ 聚合已投接收窗(rdma_rx_slots×slice×跨机
-  //   src 数 ≈ 384MB @16rank/1MB)—— α2 下 W2(612MB/波)与 W3(408)都触发
-  //   E1025 QP 级联死,W6(204)存活;α1 W2(293)存活且 rank0 开门 20.0ms
-  //   (NCCL 37.2)= 在线调 W 的甜点证据;W3 有未解共振(α1 慢 2.8×)。
-  // hot 谓词与 PACE/auto-tier 同族;SSP/hint 下 D 为上一拍(有界陈旧,D17);
-  // 矩阵全空 ⇒ 判非热点,与「无信息则直发」同向。
+  // ── W 形态自适应 v3(2026-08-21;AUTO_TIER/WAVE_FRAG 显式设时优先):
+  // 非热点列 → W=1(多波在直发形态是纯税:8M uniform W1 打平 NCCL vs W6 5×;
+  // 小报文 W 是 RTT 叠加)。热点列 → **在线自适应**(设计 File/design-
+  // decision-layer-0821.md §1):W 地形非单调且有共振(α1:W2=20.0ms、W3=56、
+  // W4=29、W6=108,NCCL 37.2),静态公式不可靠;MoE 同形状每 iter 重复 24 次,
+  // 在线样本白送。按形状签名记 EMA,从 cfg.waves 向下探测,劣化(>5%)档记入
+  // bad_mask 永久绕开;**探索下界 = QP 悬崖安全值**:每波跨机热列在途必须
+  // 装进对端聚合已投接收窗(rdma_rx_slots×slice×跨机 src 数;>384MB/波实测
+  // 两次 E1025 级联死)。全部输入为运行时量 + 本地观测(G.2 合规,零集群常数)。
   if (c->cfg.sched == MOSAIC_SCHED_MOSAIC && c->eff_waves == 0) {
-    uint64_t wmax = 0;
+    uint64_t wmax = 0, wmax_x = 0;
     std::vector<uint64_t> wcol(n, 0);
-    for (int s2 = 0; s2 < n; s2++)
-      for (int d2 = 0; d2 < n; d2++)
-        if (s2 != d2) wcol[d2] += D[(size_t)s2 * n + d2];
+    for (int d2 = 0; d2 < n; d2++) {
+      uint64_t col = 0, colx = 0;
+      for (int s2 = 0; s2 < n; s2++) {
+        if (s2 == d2) continue;
+        uint64_t v = D[(size_t)s2 * n + d2];
+        col += v;
+        if (!c->topo.same_host(s2, d2)) colx += v;
+      }
+      wcol[d2] = col;
+      wmax = std::max(wmax, col);
+      wmax_x = std::max(wmax_x, colx);
+    }
     std::vector<uint64_t> ws = wcol;
     std::sort(ws.begin(), ws.end());
     uint64_t wmed = ws[n / 2];
-    for (uint64_t v : wcol) wmax = std::max(wmax, v);
-    if (!(wmed > 0 && wmax >= 2 * wmed)) c->eff_waves = 1;
+    c->warm_cur = nullptr;
+    if (!(wmed > 0 && wmax >= 2 * wmed)) {
+      c->eff_waves = 1;                          // 非热点:直发单波,不进搜索
+    } else {
+      // 安全下界(悬崖 = QP 级联死,宁高勿低)
+      const int rem_peers = std::max(1, c->cfg.nranks - c->cfg.gpus_per_host);
+      const uint64_t win = (uint64_t)rdma_rx_slots(c->cfg.slice_bytes) *
+                           (uint64_t)c->cfg.slice_bytes * (uint64_t)rem_peers;
+      int wsafe = win ? (int)((wmax_x + win - 1) / win) : 1;
+      if (wsafe < 1) wsafe = 1;
+      if (wsafe > c->cfg.waves) wsafe = c->cfg.waves;
+      c->warm_wsafe = wsafe;
+      // 形状签名:列和 log2 半档分桶 + 排序 hash(容忍 gating 抖动)
+      std::vector<uint8_t> bk(n);
+      for (int d2 = 0; d2 < n; d2++) {
+        uint64_t v = wcol[d2] >> 16;             // 64KB 粒度
+        int b = 0;
+        while (v) { b++; v >>= 1; }
+        bk[d2] = (uint8_t)b;
+      }
+      std::sort(bk.begin(), bk.end());
+      uint64_t key = 1469598103934665603ull ^ (uint64_t)n;
+      for (uint8_t b : bk) { key ^= b; key *= 1099511628211ull; }
+      // arm 命中 / LRU 换出
+      Comm::WaveArm* arm = nullptr;
+      for (auto& a : c->warm) if (a.key == key) { arm = &a; break; }
+      if (!arm) {
+        arm = &c->warm[0];
+        for (auto& a : c->warm) if (a.last_ns < arm->last_ns) arm = &a;
+        *arm = Comm::WaveArm();
+        arm->key = key;
+        arm->cur_w = c->cfg.waves;               // 安全起步
+        arm->best_w = c->cfg.waves;
+      }
+      arm->last_ns = now_ns();
+      if (arm->cur_w < wsafe) arm->cur_w = wsafe;   // 需求变大时抬回安全线
+      c->eff_waves = arm->cur_w;
+      c->warm_cur = arm;
+    }
   }
   c->pc_k = 0;
   if (c->cfg.sched == MOSAIC_SCHED_MOSAIC && c->cfg.pair_color != 0) {
@@ -1279,6 +1324,32 @@ static void coll_try_finish(Comm* c) {
     c->coll_end_ns = now_ns();
     MTRACE(TE_COLL_END, (uint32_t)c->coll_id, c->dst.total_recv, 0);
     c->st.completion_us = (c->coll_end_ns - c->coll_start_ns) / 1000.0;
+    // W 在线自适应:喂 completion,8 样本一窗;劣化(>5%)档记 bad_mask 永久
+    // 绕开(共振档在线消化),否则向下探测;下界 = warm_wsafe(QP 悬崖)。
+    if (c->warm_cur) {
+      Comm::WaveArm& a = *c->warm_cur;
+      const double ms = c->st.completion_us / 1000.0;
+      a.ema_ms = a.samples ? 0.7 * a.ema_ms + 0.3 * ms : ms;
+      a.samples++;
+      if (a.samples >= 8) {
+        if (a.best_ms <= 0 || a.ema_ms < a.best_ms * 0.98) {
+          a.best_ms = a.ema_ms;
+          a.best_w = a.cur_w;
+        }
+        const bool worse = a.best_ms > 0 && a.ema_ms > a.best_ms * 1.05;
+        if (worse && a.cur_w != a.best_w) {
+          if (a.cur_w >= 0 && a.cur_w < 16) a.bad_mask |= (uint16_t)(1u << a.cur_w);
+          a.cur_w = a.best_w;
+        } else {
+          int nxt = a.cur_w - 1;
+          while (nxt >= c->warm_wsafe && nxt < 16 && (a.bad_mask & (1u << nxt))) nxt--;
+          if (nxt >= c->warm_wsafe) a.cur_w = nxt;
+        }
+        a.samples = 0;
+        a.ema_ms = 0;
+      }
+      c->warm_cur = nullptr;
+    }
     for (int k = 0; k < RES_KINDS; k++) c->st.res_passed[k] = c->buck[k].passed - es->base_passed[k];
     c->dst.active = false;
     // 为下一次 collective 归零交付计数(而不是在下一次开始时清 —— 见 coll_begin)
