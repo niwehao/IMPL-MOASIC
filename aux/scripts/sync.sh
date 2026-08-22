@@ -4,7 +4,7 @@
 # /home 不是共享盘(实测),所以每次改代码都必须同步 —— 这是本项目的头号操作坑:
 # 忘了同步的表现是"对端跑的是旧二进制",而症状会伪装成协议 bug。
 #
-# 为什么同步整棵 Impl 而不只是 mosaic-rt:moe-rt / baseline-rt / fast-rt 的
+# 为什么同步整棵 Impl 而不只是 mosaic-rt:moe-rt / mosaic-rt/nccl / fast-rt 的
 # worker 都在远端起,四个目录必须版本一致。早先只同步 mosaic-rt、其余手工 rsync,
 # 结果 python 绑定改了却没过去,报成了"远端 import 失败"。
 set -euo pipefail
