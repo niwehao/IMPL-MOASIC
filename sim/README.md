@@ -21,7 +21,7 @@ and non-uniform (MoE-style skewed) A2A workloads are supported.
 | `csg-htsim/tools/` | Schedule generation / conversion / fill tools + cut lower bounds (Python) |
 | `csg-htsim/cache/` | Demand matrices, solver artifacts, `.sched` files (content-addressed caching) |
 | `csg-htsim/experiments/mosaic_x1/` | **Experiment archive**: 25 groups, each with results.csv + plot.png + README |
-| `Note/` | Reports and docs: `report_mosaic_eps.md` (EPS main report, v6) + `report_mosaic_ocs.md` (OCS main report), `report_scale_1024.md`/`report_switch_centric.md` (headline results), `SOTA.md`, `fail.md` (negative results), `handoff.md`; exploration history in `explore/` |
+| `Note/` | Reports and docs: `report_mosaic_eps.md` (EPS main report, v6), `2026-0801-x36-scale-1024.md`/`2026-0801-x37-switch-centric.md` (headline results), `SOTA.md`, `fail.md` (negative results), `handoff.md`; exploration history in `explore/` |
 | `Note/Design/` | Per-baseline deep dives (`baseline_{teccl,taccl,syccl,fast,ecmp_basic}.md`), mechanism comparison, FAST paper notes |
 | `TE-CCL/` `taccl/` `syccl-grb/` | The three solvers (origins & pinned HEADs in THIRD_PARTY_REPOS.md; only thin adapter changes by us) |
 | `FAST/` | Official FAST reference code (source of the line-by-line port) |
@@ -111,9 +111,9 @@ PASSED numbers may enter comparison tables.
 - **Per-baseline deep dives** (code pointers, strengths, limits, traps):
   `Note/Design/baseline_*.md`.
 - **Four solvers × five topologies panorama** (uniform + non-uniform):
-  `Note/explore/experiment_summary.md`.
+  `Note/explore/2026-0710-experiment-summary-v4.md`.
 - **Solver topology-expressiveness comparison**:
-  `Note/explore/solver_topology_capabilities.md`.
+  `Note/explore/2026-0708-solver-topology-capabilities.md`.
 
 ## License note
 

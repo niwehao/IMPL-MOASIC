@@ -47,7 +47,7 @@ plan、MOSAIC 的 prior 都按额定 180G 算;执行侧 pacing 按真实速率
   效应消失并反号;方向分解(新仪器 `-flex_degrade_dir`)显示单独降收/
   降发均不复现(±0.2%),须收发同降。其机制学替代品是 **F6 冷源限速**
   (`-mosaic_cold_pace`,受控 admission,带三道生成期门),见
-  `32_paradox_pacing/` 与 `Note/explore/report_paradox_pacing.md` §3。
+  `32_paradox_pacing/` 与 `Note/explore/2026-0728-x32-paradox-pacing.md` §3。
 - 结论 3 的"单 NIC 降速下 FAST 结构免疫、MOSAIC 撞降速 NIC"已由 32 组
   推广成**状态粒度错配**定律(λ 是 per-dst,故障是 per-src-host),并由
   **F7 `-mosaic_host_lambda`** 修复:单中继降速 +32% → +0.6%。

@@ -1,5 +1,8 @@
 # 34 组:O1 波内配对着色(pair coloring)+ O3 λ 守卫(负结果)
 
+**报告**:`Note/explore/2026-0731-x34-pair-color.md`(机制数学、pc×R
+机理、PC × 其他 wiring 与着色深度探针)。
+
 **日期**:2026-07-31。**批日志**:`cache/nonuniform/x34_opt.log` /
 `x34b_opt.log` / `x34c_opt.log`(每份头部记录二进制 md5)。所有数字
 validation PASSED、queue_drops 0。

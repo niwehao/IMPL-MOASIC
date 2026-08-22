@@ -50,9 +50,6 @@ htsim_dumbell_ndptunnel:	main_dumbell_ndptunnel.o $(LIBDEP)
 htsim_trigger_test:	main_trigger_test.o $(LIBDEP)
 	$(CC) $(CFLAGS) main_trigger_test.o -o htsim_trigger_test $(LIBS)
 
-htsim_optical:	../../src/main_optical.cpp ../../src/optical_fabric.h
-	$(CC) $(CFLAGS) $(INCLUDE) ../../src/main_optical.cpp -o htsim_optical
-
 htsim_smart_regular:	../../src/main_regular.cpp ../../topo/regular_graph.h ../../topo/clos_graph.h ../../src/node.h ../../src/scheduler.h ../../scheduler/basic.h ../../scheduler/fast_schedule.h ../../scheduler/mosaic_schedule.h ../../scheduler/teccl_schedule.h ../../scheduler/syccl_schedule.h ../../src/packet.h ../../src/wait_queue.h ../../src/workflow.h ../../workload/A2A.h $(LIBDEP)
 	$(CC) $(CFLAGS) $(INCLUDE) ../../src/main_regular.cpp -o htsim_smart_regular $(LIBS)
 

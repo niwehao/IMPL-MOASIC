@@ -31,4 +31,4 @@ bv+bn 满速(=B1),cold 填缝;该计划的 λ 就是 isolated prior(时不变)�
 
 数据 `results.csv`;日志 `cache/nonuniform/x26_matrix.log`(plan/planst 行);
 序预测对照 `cache/nonuniform/x27_e4_nv360_order.txt`。
-报告:`Note/explore/report_donation_phase.md`。
+报告:`Note/explore/2026-0727-x26-27-donation-phase.md`。

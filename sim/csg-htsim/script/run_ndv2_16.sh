@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ndv2(16 GPU 异构混布,TE-CCL 独占拓扑)A2A 对比:
 # 400/200/100G 混布 + 仅 2 条跨箱链路;TACCL/SyCCL 无法表达此图
-# (见 Note/solver_topology_capabilities.md),故只比 basic/static_ecmp/teccl/fast。
+# (见 Note/2026-0708-solver-topology-capabilities.md),故只比 basic/static_ecmp/teccl/fast。
 # FAST 按 2 箱 x 8 GPU 分组,但机间只有 2 条物理链路,i->i 映射需多跳
 # 中继,属 FAST 模型外拓扑(每 GPU 独立 NIC 假设不成立)。
 # NONUNIFORM=1:非均匀 A2A;teccl 用 pow2 padded 计划 + fill 截断。

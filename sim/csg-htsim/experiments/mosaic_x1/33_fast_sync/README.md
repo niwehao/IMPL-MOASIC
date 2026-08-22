@@ -1,6 +1,6 @@
 # 33_fast_sync — FAST 运行时 stage 同步(none/credit/barrier)与 stage 顺序修正
 
-2026-07-28。主报告:`Note/explore/report_fast_runtime_sync.md`(动机、官方源码
+2026-07-28。主报告:`Note/explore/2026-0728-x33-fast-runtime-sync.md`(动机、官方源码
 逐行映射、实现、审计全文)。
 
 ## 设置

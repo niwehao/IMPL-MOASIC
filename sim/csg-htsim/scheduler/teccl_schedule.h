@@ -203,7 +203,7 @@ public:
     // round-robin fixed the clos_32 bottleneck-starvation anomaly for TE-CCL
     // (9464->8074us) but regressed relay pipelines badly elsewhere
     // (TACCL dgx_rail +59%), so per-solver semantics were kept; SyCCL uses
-    // round-robin. See Note/experiment_summary.md 2.4.
+    // round-robin. See Note/2026-0710-experiment-summary-v4.md 2.4.
     static SmartNode::ChunkIter
     select_chunk_to_send(SmartNode* node, Route*& selected_route) {
         SmartNode::ChunkIter selected =

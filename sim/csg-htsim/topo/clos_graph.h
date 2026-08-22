@@ -25,7 +25,7 @@
 // so under a symmetric A2A every scheme carries identical host-uplink load
 // and relaying cannot bypass anything. This is an executability/consistency
 // topology, not a solver-advantage topology (see
-// Note/solver_topology_capabilities.md).
+// Note/2026-0708-solver-topology-capabilities.md).
 
 static uint32_t ceil_div_u32(uint32_t value, uint32_t divisor) {
     return (value + divisor - 1) / divisor;

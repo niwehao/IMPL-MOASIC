@@ -1,9 +1,9 @@
 # 28_wave_ramp — 动态 corridor ramp 与固定 wave size 探索
 
-日期 2026-07-27。承接 26/27 组(`Note/explore/report_donation_phase.md`)与两条用户
+日期 2026-07-27。承接 26/27 组(`Note/explore/2026-0727-x26-27-donation-phase.md`)与两条用户
 思路:①corridor 数从保守起步、随执行推进对 hot dst 逐步增加;②wave 由
 "固定数量"改为"固定 size(数量浮动)"。完整叙事与机制分析见
-`Note/explore/report_wave_ramp.md`。**全部新机制默认关,flags-off 与 v5 逐位一致。**
+`Note/explore/2026-0727-x28-wave-ramp.md`。**全部新机制默认关,flags-off 与 v5 逐位一致。**
 
 ## 设置
 

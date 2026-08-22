@@ -70,4 +70,4 @@ README 命令在**改动前代码**上也复现不出(6679.01)——23 组归档
 数据 `results.csv`(含 `[reg_*]`/`[wsweep_*]` 行);日志
 `cache/nonuniform/x26_{trace_nv*,matrix,phase2,regression,gate}.log`;
 诊断 demand `cache/nonuniform/demand_n32_solo_dst26.txt`。
-报告:`Note/explore/report_donation_phase.md`。
+报告:`Note/explore/2026-0727-x26-27-donation-phase.md`。

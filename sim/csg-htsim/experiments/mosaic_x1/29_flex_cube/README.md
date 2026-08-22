@@ -5,7 +5,7 @@
 NDv2 式 hybrid cube-mesh 点对点链路、400/200/100G 三档混布旋钮;机间
 沿用 flex_rail 的 rail 布线 nic=180/taper=180/spine=1)上实测:**MOSAIC
 用新的 WIRING_CUBE corridor 族可以正常运行**,并在异构/NV 稀缺画像上
-保持对 FAST 的优势。完整叙事见 `Note/explore/report_flex_cube.md`。
+保持对 FAST 的优势。完整叙事见 `Note/explore/2026-0727-x29-flex-cube.md`。
 
 ## 设置
 

@@ -1,7 +1,7 @@
 # 32_paradox_pacing — 带宽/降速双悖论、状态粒度、挂账结案
 
 2026-07-28。回答三个问题 + 一条挂账(完整叙事:
-`Note/explore/report_paradox_pacing.md`;常设配置表:`Note/SOTA.md`)。
+`Note/explore/2026-0728-x32-paradox-pacing.md`;常设配置表:`Note/SOTA.md`)。
 全部实验在**冻结二进制**上执行(`cache/nonuniform/x32bin/`,批日志头
 记录 md5):诊断用 `htsim_f1f5b2a`(= 提交 f1f5b2a 原样),机制验证用
 `htsim_mech`(f1f5b2a + F6/F7/门,flag-off 逐位回归通过)。

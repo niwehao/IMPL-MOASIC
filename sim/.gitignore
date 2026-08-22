@@ -38,6 +38,3 @@ smart_regular.dat
 
 # ==== 第三方仓库(保留其自有 .git 克隆,未并入本仓) ====
 DeepEP/
-csg-htsim/cache/optical/tmp/
-csg-htsim/cache/optical/tmp2/
-csg-htsim/cache/optical/tmp37/

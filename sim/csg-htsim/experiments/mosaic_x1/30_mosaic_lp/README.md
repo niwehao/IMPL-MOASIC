@@ -3,7 +3,7 @@
 2026-07-27。承接 29 组(flex_cube,SOTA=C6+W16/R)与用户思路:**拓扑
 到手时(workload 未知)用 LP 离线解子调度,运行期用 MOSAIC 的 λ 反馈
 调子调度比例**;LP 下放到机内(逐 host 小 LP),跨级只做比例调整,
-不维护全局大 LP。完整叙事:`Note/explore/report_mosaic_lp.md`。
+不维护全局大 LP。完整叙事:`Note/explore/2026-0727-x30-mosaic-lp.md`。
 
 ## 机制
 

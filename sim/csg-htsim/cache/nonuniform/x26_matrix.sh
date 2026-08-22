@@ -1,5 +1,5 @@
 #!/bin/bash
-# x26: donation/skew exploration matrix (report Note/report_donation_phase.md)
+# x26: donation/skew exploration matrix (report Note/2026-0727-x26-27-donation-phase.md)
 # Variants: base | window(E1) | rewf(E2) | skew2(E3) | skew2+rewf | static |
 #           static+skew2(pure-static C) | plan(E4) | plan+static
 cd /home/weihaoni/Tage/JUMP-sim/Htsim/csg-htsim

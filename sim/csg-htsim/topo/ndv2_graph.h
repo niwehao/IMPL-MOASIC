@@ -70,7 +70,7 @@ static vector<vector<int> > ndv2_like_raw_capacity_codes() {
 // The 16-GPU ndv2 above is TE-CCL-exclusive: heterogeneous 400/200/100G
 // links and sparse point-to-point cross-chassis wiring are outside TACCL's
 // replicated-host model and SyCCL's layered config (see
-// Note/solver_topology_capabilities.md). To land in the three solvers'
+// Note/2026-0708-solver-topology-capabilities.md). To land in the three solvers'
 // common set, ndv2_32 makes two deliberate compromises:
 //   1. intra-chassis NVLink is a UNIFORM 200 Gbps (SyCCL allows one
 //      link_spec per layer); the hybrid cube-mesh ADJACENCY of NDv2 is

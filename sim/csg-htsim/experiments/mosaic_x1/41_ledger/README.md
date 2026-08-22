@@ -1,6 +1,6 @@
 # 41_ledger:MOSAIC-L——全局资源账本分配核 vs 原方案(λ 反馈)
 
-**日期**:2026-08-05。**目的**:验证 `Note/explore/report_eps_foundation_audit.md`
+**日期**:2026-08-05。**目的**:验证 `Note/explore/2026-0805-x41a-eps-foundation-audit.md`
 的立足点批判——"λ 学的是本可记账的东西"。实现 `-mosaic_ledger`
 (`scheduler/mosaic_schedule.h`,默认关,legacy 全逐位):每资源
 (NIC↑↓/NV↑↓/(leaf,spine) 段)记 outstanding/有效速率,波配额按

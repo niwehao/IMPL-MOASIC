@@ -6,10 +6,9 @@ regime 特调——定稿**唯一统一方案**并在所有历史 SOTA 场景补
 **MOSAIC-U(EPS)** = `C(wiring 定)+ W(拓扑可调)+
 -mosaic_pair_color_auto + -mosaic_cold_pace 1 [+ cube LP 表(离线产物)]`。
 PC 的 auto 门本组扩为三重:diag-CoV(34 组)∧ **rail2p wiring 门**(新,
-34/35 组结构性负)∧ **lp_spread 门**(新,本组归因 cube mix +3.1% 全来自
+34 组结构性负)∧ **lp_spread 门**(新,本组归因 cube mix +3.1% 全来自
 PC×jdist 争 lane 时序;`src/main_regular.cpp` 生成期判定)。
 R(MOSAIC-R)/HOSTL/E 系机制退役(`Note/fail.md` §1)。
-**MOSAIC-O(OCS)** 本就单一方案,无需改动。
 
 ## 结果(35 cell;results.csv,原始日志 x38*.log)
 

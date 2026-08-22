@@ -7,7 +7,6 @@ import sys
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..")
 EPS_LOG = os.path.join(ROOT, "cache/nonuniform/x37_eps.log")
-OCS_CSV = os.path.join(ROOT, "cache/optical/x37_ocs.csv")
 PROBES = [os.path.join(ROOT, "cache/nonuniform/x37_probe_buf.txt"),
           os.path.join(ROOT, "cache/nonuniform/x37_probe_wave.txt")]
 
@@ -61,23 +60,6 @@ for pf in PROBES:
                      r"completion_us ([0-9.e+]+) queue_drops (\d+)", line)
         if m:
             add("eps", m.group(1), m.group(2), m.group(3), m.group(4))
-
-if os.path.exists(OCS_CSV):
-    for r in csv.reader(open(OCS_CSV)):
-        if len(r) != 5 or r[0] in ("demand", "DONE"):
-            continue
-        dem, R, scheme, detail, comp = r
-        tag = "ocs_%s_R%s_%s" % (dem, R, scheme)
-        if scheme == "lower_bound":
-            rows.append(["ocs", "ocs_%s_LB" % dem, "-", comp, comp, "1.000",
-                         "", "max_line_cut@100G"])
-            LB["ocs_" + dem] = float(comp)
-            continue
-        lb = LB.get("ocs_" + dem)
-        st = "FAILED" if "FAILED" in detail else "PASSED"
-        x = "%.3f" % (float(comp) / lb) if lb and comp not in ("", "-") else ""
-        rows.append(["ocs", tag, st, comp, "%.1f" % lb if lb else "", x, "",
-                     detail])
 
 out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "results.csv")
 with open(out, "w", newline="") as f:

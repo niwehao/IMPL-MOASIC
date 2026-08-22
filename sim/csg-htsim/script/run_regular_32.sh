@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # regular_32(32 节点 degree-4 circulant 纯直连图)A2A 对比:
 # 编译 -> schedule 生成(带缓存)-> htsim 模拟。
-# SyCCL 不支持此拓扑(见 Note/solver_topology_capabilities.md);
+# SyCCL 不支持此拓扑(见 Note/2026-0708-solver-topology-capabilities.md);
 # TACCL 用"单主机 32 GPU + 机内 links 矩阵"编码(可解性见能力文档)。
 # FAST 在此退化为纯 Birkhoff 置换调度(gpus_per_server=1),且置换目标常
 # 非邻居 → 多跳 store-forward,属 FAST 模型外拓扑(见能力文档)。

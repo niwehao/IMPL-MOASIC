@@ -2,7 +2,7 @@
 
 2026-07-27。两问:①同构点对点上 MOSAIC 为何不收敛到 FAST,能否**不检测
 同构、不感知劣势**地自动收敛;②LP 能否覆盖 NVSwitch(flex_rail),
-用 MOSAIC-LP 统一全部 wiring。完整叙事:`Note/explore/report_mosaic_lp_v2.md`。
+用 MOSAIC-LP 统一全部 wiring。完整叙事:`Note/explore/2026-0727-x31-mosaic-lp-v2.md`。
 
 ## 差距归因(diag 段,x31_diag.log)
 

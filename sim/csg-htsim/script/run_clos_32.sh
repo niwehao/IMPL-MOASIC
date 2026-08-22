@@ -4,7 +4,7 @@
 # 4 leaf x 8 host,单 spine,leaf 上行 400G(2:1 收敛)。
 # 注意:host 度数=1,对称 A2A 下所有方案同受 host/leaf 上行 cut 约束,
 # 这是"公共集合可执行性"拓扑,不用于展示 solver 优势
-# (见 Note/solver_topology_capabilities.md)。FAST 在此退化为纯 Birkhoff
+# (见 Note/2026-0708-solver-topology-capabilities.md)。FAST 在此退化为纯 Birkhoff
 # 置换调度(gpus_per_server=1,无 scale-up 层可用)。
 # NONUNIFORM=1:非均匀 A2A;teccl/taccl/syccl 用 pow2 padded 计划 + fill 截断。
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
