@@ -133,14 +133,36 @@ def _hint_mode(sc, rc, rb):
     return 0
 
 
+# ── 调用相位(任务二,mosaic.h phase 参数):决策权给"总量相等"的那一侧。
+# dispatch(各 src 发出总量相等)= src 驱动;combine(各 dst 收到总量相等)
+# = dst 驱动;未知 = dst 驱动(旧行为)。由调用位置显式给出,引擎不做推断。
+PHASE_NONE = 0
+PHASE_DISPATCH = 1
+PHASE_COMBINE = 2
+# autograd 反向的相位共轭:dispatch 的反向是 combine 形状(splits 转置),反之亦然
+_PHASE_CONJ = {PHASE_NONE: PHASE_NONE, PHASE_DISPATCH: PHASE_COMBINE,
+               PHASE_COMBINE: PHASE_DISPATCH}
+
+
 def all_to_all_single(output, input, output_split_sizes=None,
-                      input_split_sizes=None, group=None, async_op=False):
+                      input_split_sizes=None, group=None, async_op=False,
+                      phase=PHASE_NONE):
     """签名对齐 torch.distributed.all_to_all_single(async_op 恒同步完成,
     返回 None —— MoE dispatcher 随即要用结果,语义等价)。"""
     if _BACKEND == "nccl":
         return dist.all_to_all_single(output, input, output_split_sizes,
                                       input_split_sizes, group=group)
     c = comm()
+#     这些是 MPI 传下来的缩写,拆开就明白了:
+
+# 变量	全称	是什么
+# sc	send counts	我发给每个 rank 多少字节
+# sd	send displs	这些数据在 sendbuf 里从哪开始
+# rc	recv counts	我从每个 rank 收多少字节
+# rd	recv displs	收来的数据放到 recvbuf 的哪个位置
+# rb	row bytes	一行多少字节
+#input_split_sizes = [2, 4, 3, 3] 不均匀是通过这个数组表达的,不是猜出来的。
+# 四个都是长度等于 world 的数组,下标是 rank 号。
     assert input.is_contiguous() and output.is_contiguous(), "E4001 需要连续张量"
     world = c.n
     sc, sd = _splits_bytes(input, input_split_sizes, world)
@@ -158,36 +180,41 @@ def all_to_all_single(output, input, output_split_sizes=None,
         if stream == 0:
             stream = 1
     c.alltoallv(input.data_ptr(), sc, sd, output.data_ptr(), rc, rd,
-                stream=stream, demand_mode=mode, row_bytes=rb)
+                stream=stream, demand_mode=mode, row_bytes=rb, phase=phase)
     # 调用内部已收尾上一笔 ⇒ 旧引用此刻可放,换持本笔的
-    _inflight[:] = [(input, output)]
+    _inflight[:] = [(input, output)]#持住张量引用,防止显存被提前回收。
     return None
 
 
 class _MosaicAllToAll(torch.autograd.Function):
-    """backward = splits 转置后的同一 alltoallv(Megatron _AllToAll 同语义)。"""
+    """backward = splits 转置后的同一 alltoallv(Megatron _AllToAll 同语义);
+    相位随之共轭(dispatch 的反向是 combine 形状,反之亦然)。"""
 
     @staticmethod
-    def forward(ctx, input, out_splits, in_splits, out_rows):
+    def forward(ctx, input, out_splits, in_splits, out_rows, phase=PHASE_NONE):
         ctx.in_splits = in_splits
         ctx.out_splits = out_splits
         ctx.in_rows = input.shape[0]
+        ctx.phase = phase
         out = input.new_empty((out_rows,) + tuple(input.shape[1:]))
-        all_to_all_single(out, input.contiguous(), out_splits, in_splits)
+        all_to_all_single(out, input.contiguous(), out_splits, in_splits,
+                          phase=phase)
         return out
 
     @staticmethod
     def backward(ctx, grad):
         g = grad.contiguous()
         back = g.new_empty((ctx.in_rows,) + tuple(g.shape[1:]))
-        all_to_all_single(back, g, ctx.in_splits, ctx.out_splits)
-        return back, None, None, None
+        all_to_all_single(back, g, ctx.in_splits, ctx.out_splits,
+                          phase=_PHASE_CONJ[ctx.phase])
+        return back, None, None, None, None
 
 
-def all_to_all_autograd(input, out_splits=None, in_splits=None, out_rows=None):
+def all_to_all_autograd(input, out_splits=None, in_splits=None, out_rows=None,
+                        phase=PHASE_NONE):
     if out_rows is None:
         out_rows = int(sum(out_splits)) if out_splits is not None else input.shape[0]
-    return _MosaicAllToAll.apply(input, out_splits, in_splits, out_rows)
+    return _MosaicAllToAll.apply(input, out_splits, in_splits, out_rows, phase)
 
 
 def patch_megatron():
@@ -199,6 +226,23 @@ def patch_megatron():
     assert hasattr(mappings, "all_to_all"), \
         "E4002 megatron mappings.all_to_all 不存在(版本符号搬移,核对 pin 的 commit)"
 
+    def _phase_from_callsite():
+        """相位按**调用位置**填(mosaic.h phase 契约):Megatron 的 a2a 只从
+        token_permutation(dispatch)/ token_unpermutation(combine)两处进来,
+        用调用帧的函数名区分;认不出 = PHASE_NONE(dst 驱动旧行为,安全退化)。
+        同一调用点全体 rank 走同一帧 ⇒ 契约"全体 rank 相位一致"自动成立。"""
+        f = sys._getframe(2)          # 1 = mosaic_all_to_all,2 = megatron 调用点
+        for _ in range(4):            # 中间可能隔 wrapper,向上探少数几帧
+            if f is None:
+                break
+            name = f.f_code.co_name
+            if "unpermutation" in name or "combine" in name:
+                return PHASE_COMBINE
+            if "permutation" in name or "dispatch" in name:
+                return PHASE_DISPATCH
+            f = f.f_back
+        return PHASE_NONE
+
     def mosaic_all_to_all(group, input_, output_split_sizes=None,
                           input_split_sizes=None):
         world = dist.get_world_size(group=group)
@@ -209,7 +253,8 @@ def patch_megatron():
         else:
             out_rows = int(sum(int(x) for x in output_split_sizes))
         return _MosaicAllToAll.apply(input_.contiguous(), output_split_sizes,
-                                     input_split_sizes, out_rows)
+                                     input_split_sizes, out_rows,
+                                     _phase_from_callsite())
 
     mappings.all_to_all = mosaic_all_to_all
     # dispatcher 可能 from-import 了符号,把已知引用点一并替换(fail-soft)

@@ -91,11 +91,23 @@ mosaicResult_t mosaicAlltoallv(mosaicComm_t comm,
  *     绝不带病继续);MOSAIC_DEMAND_HINT=0 全局禁用,=2 为 verify 档(照常
  *     allgather 并对拍推导矩阵,只验不省)。FAST 调度器需要全局一致矩阵,
  *     引擎自动把 1/2 降为 verify 档(它的官方实现本就要求全量交换)。
- *   row_bytes:本次每行字节数(demand_mode!=0 时用于缩放;其余传 0)。 */
+ *   row_bytes:本次每行字节数(demand_mode!=0 时用于缩放;其余传 0)。
+ *   phase:本次 collective 的调用相位,由调用方(L4)按**调用位置**填:
+ *     1 = dispatch(每 src 发出总量相等 —— 决策权反转给 src,
+ *     MOSAIC_SRC_DRIVEN=0 可关);2 = combine(每 dst 收到总量相等,
+ *     dst 驱动)。**本项目不存在"未知相"的 a2a**(要么发送端均匀要么接收端
+ *     均匀),项目内全部调用点显式填 1/2:bench_a2a 默认 1(--phase 2 切
+ *     combine)、ep_moe 两个调用点、mcore 经 patch_megatron 按调用帧推断
+ *     (推断即失败会退 0)。0 仅作 API 兼容档保留(与 torch 同签名的
+ *     drop-in 包装层拿不到相位时的安全值,= dst 驱动)。**契约:同一
+ *     collective 全体 rank 的 phase 必须一致**(与 splits 一致性同级);
+ *     不许从 demand_mode 推断(那是可被 MOSAIC_DEMAND_HINT=0 关掉的优化
+ *     提示,方向不许与之耦合)。 */
 mosaicResult_t mosaicAlltoallvEx(mosaicComm_t comm,
                                  const void* sendbuf, const size_t scounts[], const size_t sdispls[],
                                  void* recvbuf, const size_t rcounts[], const size_t rdispls[],
-                                 uint64_t caller_stream, int demand_mode, uint64_t row_bytes);
+                                 uint64_t caller_stream, int demand_mode, uint64_t row_bytes,
+                                 int phase);
 
 /* 小数据 allgather(host 内存,走控制面)。MoE 集成需要先交换各 rank 的
    token 计数才能定 buffer 大小 —— 这类元数据交换不该占数据管。
@@ -111,7 +123,11 @@ typedef struct {
   double makespan_us;        /* 全局 max(需 mosaicStatsSync 后才有效) */
   uint64_t bytes_sent, bytes_recv, bytes_relayed;
   uint64_t corridor_bytes[8];   // 出向:本 rank 实际发出的字节按走廊分
-  uint64_t ingress_corr[8];     // 入向:本 rank 作为 dst 控制环给自己安排的进流分配
+  uint64_t ingress_corr[8];     // 本 rank 决策环安排的分配按走廊分:dst 驱动
+                                // (combine/未知相)= 给自己安排的**进流**;
+                                // src 驱动(dispatch 相)= 给自己安排的**出流**。
+                                // waves_emitted 同理:dispatch 相下波是 src 的
+                                // 流水单元,计的是本 rank 作为 src 发的波数。
   uint64_t chA_msgs, chA_bytes, chB_msgs, chB_bytes;
   double plan_us_total; uint64_t plan_calls; double plan_us_max;
   double stagger_us_total;

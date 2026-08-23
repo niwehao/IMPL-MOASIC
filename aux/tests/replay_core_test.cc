@@ -16,8 +16,11 @@
  * 走廊号映射:sim {DIRECT=0,TX=1,RX=2,SP=3..} ↔ rt {DIRECT=0,RX=1,TX=2,SP=3..}。
  *
  * 用法:
- *   ./build/replay_core_test <demand_file(sim 格式)> <trace_file> [nv_gbps nic_gbps]
- * 退出码 0 = wave0 全 dst 全 src 逐字节一致。
+ *   ./build/replay_core_test <demand_file(sim 格式)> <trace_file> [nv_gbps nic_gbps [taper [--src]]]
+ * --src:src 驱动 dispatch 相(任务二)的对拍 —— 金标由模拟器
+ *   `-mosaic_src_driven -mosaic_decision_trace` 生成,重放按 src 升序驱动
+ *   engine_test_emit_wave_src(错峰槽位 = s mod 8,n=8 时升序即槽位序)。
+ * 退出码 0 = wave0 全 (dst,src) 逐字节一致。
  */
 #include "internal.h"
 
@@ -33,8 +36,11 @@ using namespace mosaic;
 static int sim2rt_corr(int c) { return c == 1 ? CORR_TX : c == 2 ? CORR_RX : c; }
 
 int main(int argc, char** argv) {
-  if (argc < 3) { fprintf(stderr, "用法:replay_core_test demand trace [nv nic]\n"); return 2; }
+  if (argc < 3) { fprintf(stderr, "用法:replay_core_test demand trace [nv nic [taper [--src]]]\n"); return 2; }
   double nv = argc > 4 ? atof(argv[3]) : 360.0, nic = argc > 4 ? atof(argv[4]) : 100.0;
+  bool src_mode = false;
+  for (int i = 5; i < argc; i++)
+    if (strcmp(argv[i], "--src") == 0) src_mode = true;
 
   // ── 读 demand(sim 文本格式:node_count N / demand s d bytes)
   FILE* f = fopen(argv[1], "r");
@@ -86,21 +92,12 @@ int main(int argc, char** argv) {
   ledger_init(c);
 
   size_t rows = 0, bad = 0;
-  for (int d = 0; d < n; d++) {          // 升序 = 错峰槽位序(dst mod 8, n=8)
-    topo_init(&c->topo, n, G, d);
-    c->cfg.rank = d;
-    c->dst = DstCtrl();
-    c->dst.active = true;
-    c->dst.wave_idx = 0;
-    for (int s = 0; s < n; s++)
-      if (s != d) c->dst.remaining[s] = D[(size_t)s * n + d];
-    engine_test_emit_wave(c);            // 充入共享账本 + 填 dbg_last_ents
-
-    // 汇总本波 per-(src,corr) 字节
-    std::map<std::pair<int,int>, long long> mine;
-    for (auto& e : c->dbg_last_ents) mine[{(int)e.src, (int)e.corr}] += e.len;
-    for (int s = 0; s < n; s++) {
-      if (s == d || D[(size_t)s * n + d] == 0) continue;
+  // 对比一个决策者本波的 (对端,corr) 分配与金标行;dst 相 mine 键 = (src,corr),
+  // src 相 mine 键 = (dst,corr)(CT_POLICY_SRC 语义:ent.src 承载 dst 端点)
+  auto check = [&](int decider, const std::map<std::pair<int,int>, long long>& mine) {
+    for (int p = 0; p < n; p++) {
+      const int d = src_mode ? p : decider, s = src_mode ? decider : p;
+      if (p == decider || D[(size_t)s * n + d] == 0) continue;
       rows++;
       auto it = gold.find({d, s});
       if (it == gold.end()) { printf("MISS 金标无 (d=%d,s=%d)\n", d, s); bad++; continue; }
@@ -109,14 +106,36 @@ int main(int argc, char** argv) {
       for (int sc = 0; sc < 6; sc++) {
         long long want = it->second[sc];
         long long got = 0;
-        auto jt = mine.find({s, sim2rt_corr(sc)});
+        auto jt = mine.find({p, sim2rt_corr(sc)});
         if (jt != mine.end()) got = jt->second;
         off += snprintf(msg + off, sizeof(msg) - off, " c%d:%lld/%lld", sc, got, want);
         if (got != want) row_bad = true;
       }
       if (row_bad) { printf("DIFF d=%d s=%d(got/want)%s\n", d, s, msg); bad++; }
     }
+  };
+  for (int r = 0; r < n; r++) {          // 升序 = 错峰槽位序(id mod 8, n=8)
+    topo_init(&c->topo, n, G, r);
+    c->cfg.rank = r;
+    if (src_mode) {
+      c->srcc = SrcCtrl();
+      c->srcc.active = true;
+      for (int d = 0; d < n; d++)
+        if (d != r) c->srcc.remaining[d] = D[(size_t)r * n + d];
+      engine_test_emit_wave_src(c);      // 充入共享账本 + 填 dbg_last_ents
+    } else {
+      c->dst = DstCtrl();
+      c->dst.active = true;
+      c->dst.wave_idx = 0;
+      for (int s = 0; s < n; s++)
+        if (s != r) c->dst.remaining[s] = D[(size_t)s * n + r];
+      engine_test_emit_wave(c);
+    }
+    std::map<std::pair<int,int>, long long> mine;
+    for (auto& e : c->dbg_last_ents) mine[{(int)e.src, (int)e.corr}] += e.len;
+    check(r, mine);
   }
-  printf("replay wave0:%zu 行,%zu 分歧 → %s\n", rows, bad, bad ? "FAIL" : "PASS");
+  printf("replay%s wave0:%zu 行,%zu 分歧 → %s\n", src_mode ? "(src)" : "",
+         rows, bad, bad ? "FAIL" : "PASS");
   return bad ? 1 : 0;
 }

@@ -320,6 +320,7 @@ int main(int argc, char** argv) {
     bool mosaic_hop_progress = false;
     uint32_t mosaic_cold_pace = 0;
     string mosaic_decision_trace;  // 决策轨迹 dump 路径(真机对拍用,默认关)
+    bool mosaic_src_driven = false;  // 任务二:dispatch 相 src 驱动发波
     bool mosaic_host_lambda = false;
     uint64_t mosaic_wave_bytes = 0;
     uint32_t mosaic_wave_min = 1;
@@ -528,6 +529,8 @@ int main(int argc, char** argv) {
         } else if (!strcmp(argv[i], "-mosaic_cold_pace") && i + 1 < argc) {
             mosaic_cold_pace = atoi(argv[i + 1]);
             i++;
+        } else if (!strcmp(argv[i], "-mosaic_src_driven")) {
+            mosaic_src_driven = true;
         } else if (!strcmp(argv[i], "-mosaic_decision_trace")
                    && i + 1 < argc) {
             mosaic_decision_trace = argv[i + 1];
@@ -989,6 +992,11 @@ int main(int argc, char** argv) {
             mosaic_gamma, mosaic_floor, mosaic_threshold, mosaic_adapt,
             mosaic_nv, mosaic_nic, mosaic_corridors, mosaic_wiring,
             mosaic_spines, mosaic_known_planeb);
+        if (mosaic_src_driven) {
+            // src-driven dispatch phase (task 2): mirrors the runtime's
+            // MOSAIC_SRC_DRIVEN + phase=1 path
+            mosaic_runtime->set_src_driven(true);
+        }
         if (mosaic_ledger) {
             mosaic_runtime->set_ledger(flex_taper_gbps, flex_spines,
                                        !mosaic_ledger_raw);

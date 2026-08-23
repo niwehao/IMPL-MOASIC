@@ -77,8 +77,14 @@ enum CtrlType : uint8_t {
   // 接收端信用回流(File/design-credit-backpressure-0821.md):body = uint64
   // 累计授权 slice 数(绝对值,收端取 max ⇒ verbs/TCP 混跑与乱序安全)
   CT_CREDIT = 9,
+  // src 驱动 dispatch(File/design-global-view-src-driven-0823.md 任务二):
+  // src 波的策略广播。**纯账本视图报文,收方永不执行**(数据由发布者自己
+  // 发出);body 仍是 PolicyEnt[],但 ent.src 字段承载 **dst 端点**,
+  // 链 = chain_of(发布者, ent.src, ent.corr)。aux 编码与 CT_POLICY 同
+  // (高 8 位 coll_id mod 256,低 8 位 wave)。
+  CT_POLICY_SRC = 10,
 };
-static constexpr uint8_t CT_MAX = CT_CREDIT;   // ctrl 报文类型校验上界
+static constexpr uint8_t CT_MAX = CT_POLICY_SRC;   // ctrl 报文类型校验上界
 
 #pragma pack(push, 1)
 struct CtrlHdr {
@@ -303,6 +309,27 @@ struct DstCtrl {
   uint64_t wave_deadline_ns = 0;// 兜底触发:慢走廊的尾部不该饿死流水线
 };
 
+// ─────────────────────────────────────────────────────────── L2:每源控制环
+// src 驱动 dispatch(任务二,File/design-global-view-src-driven-0823.md):
+// dispatch 相每个 src 发出的总量相等 ⇒ 决策权给"总量相等"的那一侧 ——
+// src 对自己的行注水发射,决策者之间因规模相同天然公平,无需协调。
+// 「波」在此相 = **src 的流水单元**:上一波跨机字节的 RC ACK(send CQ 完成
+// = 对端已收)过 MOSAIC_WAVE_THRESH 即发下一波。combine 相仍走 DstCtrl。
+struct SrcCtrl {
+  bool active = false;
+  uint64_t remaining[MAX_RANKS] = {0};   // [dst] 本 coll 我的行还没发射的字节
+  uint64_t cursor[MAX_RANKS] = {0};      // [dst] 行内连续区间游标
+  int wave_idx = 0;
+  uint64_t wave_nic_bytes = 0;   // 上一波 hop0 为跨机的字节(ack 门的分母;
+                                 // NV hop0 无 ACK 事件,不进分子分母)
+  uint64_t wave_acked = 0;       // 其中已获 RC ACK 的字节(src_wave_ack 计)
+  bool pending_trigger = false;
+  uint64_t trigger_ns = 0;       // 错峰:到点才决策(与 dst 环同一套槽位)
+  uint64_t trigger_set_ns = 0;
+  uint64_t wave_start_ns = 0;
+  uint64_t wave_deadline_ns = 0; // 兜底:按本 rank 出向(NV↑+NIC↑)额定估计
+};
+
 struct Stats : mosaicStats_t {};
 
 // ─────────────────────────────────────────────────────────── Comm
@@ -415,6 +442,20 @@ struct Comm {
 
   // ---- 协议状态 ----
   DstCtrl dst;                     // 本 rank 作为"目的地"的控制环
+  SrcCtrl srcc;                    // 本 rank 作为"源"的控制环(src 驱动 dispatch)
+  // 本 coll 的调用相位(L4 按调用位置填,经 mosaicAlltoallvEx 传入):
+  // 0 = 未知(dst 驱动,旧行为);1 = dispatch;2 = combine。
+  // **不复用 demand_mode**:那是可被 MOSAIC_DEMAND_HINT=0 关掉的纯优化提示,
+  // 调度方向不许与之耦合。契约:同一 collective 全体 rank 的 phase 必须一致
+  // (与 splits 一致性同级的调用方责任)。
+  int coll_phase = 0;
+  bool src_mode = false;           // 本 coll 决策者 = src(phase=1 × MOSAIC_SRC_DRIVEN)
+  // [rank] 本 coll 该 peer 的 demand 行已到 = **peer 已提交本 coll** ⇒ 它的
+  // recv 缓冲已切换。src 驱动的发送门:不变量「数据到达时对端已在本代」在
+  // dst 驱动下靠"dst 先发策略"结构性成立,src 驱动改由此门承接 —— 对某 dst
+  // 的任何字节只在收到它本 coll 的行之后才允许注水/发射(逐 dst 放行,
+  // 不是等满 n-1 行,SSP 的免等启动只对迟到行的那几个 dst 局部退化)。
+  std::vector<uint8_t> peer_row_seen;
   std::vector<uint64_t> demand;    // [n*n] 本次 collective 的全局矩阵(字节)
   uint64_t telem_next_ns = 0, telem_seq = 0;
   std::vector<uint64_t> peer_disch_seq;
@@ -652,6 +693,11 @@ void det_feed(Comm* c, int which, uint64_t bytes);
 // engine.cc:测试入口 —— 直接驱动一次波装配(replay_core_test 对拍用,
 // 不经 event 线程;调用前 c 的 demand/dst.remaining/ledger 须已就位)
 void engine_test_emit_wave(Comm* c);
+// 同上,src 驱动版(调用前 srcc.remaining 须已就位;行门在离线态视为全开)
+void engine_test_emit_wave_src(Comm* c);
+// engine.cc:src 波的 ACK 计数(verbs_poll 在数据 WR send CQ 成功时调;
+// RC send 完成 = 对端已收,hop0 且 h.src==本 rank 的片才计)
+void src_wave_ack(Comm* c, const SliceHdr& h);
 
 // engine.cc
 void engine_start(Comm* c);

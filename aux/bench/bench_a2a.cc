@@ -128,6 +128,11 @@ int main(int argc, char** argv) {
   int dump_demand = 0;
   double alpha = 1.0;
   int seed = 42, iters = 10, warmup = 3, verify = 1;
+  // --phase:提交相位,与 L4 的 phase 参数同义。本项目不存在"未知相"的
+  // a2a —— 要么发送端均匀(dispatch,src 决策),要么接收端均匀(combine,
+  // dst 决策)。bench 的 demand 模式(hotdst/uniform/persrc/zipf)都是
+  // 行全等构造 ⇒ 默认 1 = dispatch;--phase 2 = combine(dst 驱动路径)。
+  int phase = 1;
   uint64_t msg = 1 << 20;
   for (int i = 1; i < argc; i++) {
     std::string a = argv[i];
@@ -152,6 +157,7 @@ int main(int argc, char** argv) {
     else if (a == "--bcast") cfg.bcast = atoi(nx().c_str());
     else if (a == "--dump-demand") dump_demand = 1;
     else if (a == "--demand-file") demand_file = nx();
+    else if (a == "--phase") phase = atoi(nx().c_str());
   }
   // --verify 控制**端到端字节校验**(it==warmup 那次,对照 pat() 逐字节比对,
   // 这就是 bit-exact 判据)。
@@ -222,7 +228,7 @@ int main(int argc, char** argv) {
     mosaicBarrier(comm);
     mosaicResult_t r = mosaicAlltoallvEx(comm, sbuf, sc.data(), sd.data(),
                                          rbuf, rc.data(), rd.data(),
-                                         (uint64_t)(uintptr_t)bench_stream, 0, 0);
+                                         (uint64_t)(uintptr_t)bench_stream, 0, 0, phase);
     if (r != mosaicSuccess) {
       fprintf(stderr, "rank %d alltoallv 失败 rc=%d: %s\n", me, r, mosaicGetLastError(comm));
       return 2;

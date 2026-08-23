@@ -561,6 +561,7 @@ int verbs_poll(Comm* c) {
         if (c->node_inflight[pn] >= h.len) c->node_inflight[pn] -= h.len; else c->node_inflight[pn] = 0;
       }
       det_feed(c, 0, h.len);
+      src_wave_ack(c, h);                         // src 相波推进的 ACK 计数
       MTRACE(TE_TXDONE, ((uint32_t)h.src << 16) | h.dst, h.off,
              ((uint64_t)h.len << 8) | h.hop);     // 发送完成(含对端 ack)
     }

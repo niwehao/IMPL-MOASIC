@@ -30,11 +30,12 @@ def _lib():
         _LIB.mosaicAlltoallv.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
                                          ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
                                          ctypes.c_void_p]
-        # 2026-08-15 扩展提交:caller_stream(O1 异步提交)、demand_mode/row_bytes(O2 hint)
+        # 扩展提交:caller_stream(O1 异步提交)、demand_mode/row_bytes(O2 hint)、
+        # phase(任务二相位:0 未知 / 1 dispatch / 2 combine,见 mosaic.h)
         _LIB.mosaicAlltoallvEx.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
                                            ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
                                            ctypes.c_void_p, ctypes.c_uint64, ctypes.c_int,
-                                           ctypes.c_uint64]
+                                           ctypes.c_uint64, ctypes.c_int]
         _LIB.mosaicBarrier.argtypes = [ctypes.c_void_p]
         _LIB.mosaicAllgather.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p]
         _LIB.mosaicGetStats.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
@@ -107,21 +108,24 @@ class Comm:
     # demand_mode/row_bytes:O2 demand hint(0 = 正常 allgather;1 = SAME 缩放;
     # 2 = TRANSPOSE 缩放;见 mosaic.h mosaicAlltoallvEx 注释)。
     def alltoallv(self, sendptr, scounts, sdispls, recvptr, rcounts, rdispls,
-                  stream=0, demand_mode=0, row_bytes=0):
+                  stream=0, demand_mode=0, row_bytes=0, phase=0):
         """阻塞语义:返回 = 输出已就绪(每轮 A2A 结束必有同步,硬不变量)。"""
         A = ctypes.c_size_t * self.n
         rc = _lib().mosaicAlltoallvEx(self._h, ctypes.c_void_p(sendptr),
                A(*scounts), A(*sdispls),
                ctypes.c_void_p(recvptr), A(*rcounts), A(*rdispls),
                ctypes.c_uint64(stream), ctypes.c_int(demand_mode),
-               ctypes.c_uint64(row_bytes))
+               ctypes.c_uint64(row_bytes), ctypes.c_int(phase))
         if rc != 0:
             raise RuntimeError(f"alltoallv 失败 rc={rc}: {_lib().mosaicGetLastError(self._h).decode()}")
 
     # ---- 便利层:按"行"(MoE 的 token 数)----
-    def alltoallv_rows(self, send_t, send_rows, recv_t, recv_rows, row_bytes):
+    def alltoallv_rows(self, send_t, send_rows, recv_t, recv_rows, row_bytes,
+                       phase=0):
         """send_t/recv_t 是行主序的 2D 张量(或等价的连续缓冲)。
-        send_rows[j] = 发给 rank j 的行数;recv_rows[i] = 从 rank i 收的行数。"""
+        send_rows[j] = 发给 rank j 的行数;recv_rows[i] = 从 rank i 收的行数。
+        phase:1 = dispatch(发送端均匀)/ 2 = combine(接收端均匀),
+        调用方按调用位置填(mosaic.h 契约)。"""
         sc = [r * row_bytes for r in send_rows]
         rc = [r * row_bytes for r in recv_rows]
         sd, rd, a, b = [], [], 0, 0
@@ -129,7 +133,8 @@ class Comm:
             sd.append(a); a += x
         for x in rc:
             rd.append(b); b += x
-        self.alltoallv(send_t.data_ptr(), sc, sd, recv_t.data_ptr(), rc, rd)
+        self.alltoallv(send_t.data_ptr(), sc, sd, recv_t.data_ptr(), rc, rd,
+                       phase=phase)
 
     def allgather_i64(self, vals):
         """每 rank 贡献一个 int64 向量,返回 [nranks][len] 的列表(控制面小消息)。"""

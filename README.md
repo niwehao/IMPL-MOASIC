@@ -96,15 +96,57 @@ bash mosaic-rt/nccl/run2.sh mosaic-rt/nccl/bench_nccl.py \
 - `--alpha` — skew strength for hotdst (0 = uniform, 2 = extreme incast)
 - `--msg` — bytes per pair
 - `--iters/--warmup` — samples (median reported)
+- `--phase 1|2` — collective phase for the mosaic leg (default 1 =
+  dispatch, source-driven; 2 = combine, destination-driven); the NCCL
+  leg has no such notion
 
 The C++ benchmark `aux/build/bench_a2a` exercises the same engine
-directly (see `aux/scripts/run2host.sh`).
+directly, wrapped by two launchers:
+
+```bash
+cd Impl/mosaic-rt
+# single node, N ranks sharing the local GPU(s)
+N=4 G=4 ./aux/scripts/local_smoke.sh --msg 1048576 --iters 5 --warmup 2 \
+    --sched mosaic --verify 1
+# two nodes (this host + the peer configured in aux/scripts/hosts.sh)
+G=4 ./aux/scripts/run2host.sh --mode hotdst --alpha 1.0 --msg 1048576 \
+    --iters 5 --warmup 2 --sched mosaic --verify 1
+```
+
+Options (everything after the script name is passed straight to
+`bench_a2a`):
+
+- `--sched mosaic|direct` — scheduler under test
+- `--mode uniform|hotdst|persrc|khot|flashuniform` — traffic pattern;
+  `--alpha`/`--seed` shape it; `--demand-file <sim-format file>` replays
+  an exact matrix instead (e.g. the simulator fixtures under
+  `aux/tests/fixtures/`)
+- `--msg` — bytes per pair; `--iters/--warmup` — samples (median of the
+  per-iteration global makespan is reported)
+- `--phase 1|2` — the collective's phase, **default 1 (dispatch)**.
+  Every all-to-all in this project is uniform on exactly one side:
+  dispatch (equal bytes sent per rank → the *source* runs the wave
+  engine) or combine (equal bytes received per rank → the *destination*
+  runs it, `--phase 2`). All bench demand modes are row-uniform, so
+  dispatch is their correct phase; there is no "unknown" phase here.
+- `--verify 1` — end-to-end byte verification (the bit-exactness gate);
+  the verified iteration is excluded from timing
+- `--corridors/--waves/--nv/--nic/--ledger/--bcast` — engine config
+  overrides for ablations
+
+Output is one CSV `run,...` line (schema in the header line printed with
+it): median/min/p99 makespan, bytes sent/relayed, per-corridor split,
+control-plane message and byte counts (`chA_*`/`chB_*`), and planning
+cost. Per-rank resource throughput and the decision ring's corridor
+allocation are printed to stderr.
 
 Run the regression suite after any change:
 
 ```bash
-cd Impl && bash regression.sh     # 20 checks: bit-exactness, replay vs
-                                  # simulator, torch drop-in, loss parity
+cd Impl && bash regression.sh     # 24 checks: bit-exactness (both phases,
+                                  # relay mode, fallback knobs), replay vs
+                                  # simulator (dst & src), torch drop-in,
+                                  # loss parity
 ```
 
 ## Parameters worth knowing
@@ -123,6 +165,9 @@ may actually want to touch:
 | `MOSAIC_NODE_INFLIGHT_MB` | 24 | Per-destination-node in-flight byte cap on the sender. |
 | `MOSAIC_MEM_BUDGET_MB` | unset | One-knob cap for GPU-side buffer pools when training is tight on memory. |
 | `MOSAIC_CTRL` | auto | Control plane: `verbs` (RDMA SEND, default when a NIC is present) or `erpc` (DPDK fallback). |
+| `MOSAIC_SRC_DRIVEN` | 1 | Dispatch-phase collectives (`phase=1`) are wave-driven by the **source** side (equal totals per sender ⇒ structural fairness). `0` reverts every collective to destination-driven waves — A/B escape hatch only. |
+| `MOSAIC_POLICY_GBCAST` | 1 | Channel-B policy is broadcast to **all** ranks so relay nodes see what has been borrowed from them (the global ledger view). `0` reverts to sending each source only its own entries — A/B escape hatch only. |
+| `MOSAIC_WAVE_THRESH` | 0.75 | Wave-advance threshold: fraction of the previous wave delivered (dst-driven) or RC-ACKed cross-host (src-driven) before the next wave is planned. |
 | `MOSAIC_PHASE` / `MOSAIC_TRACE` | 0 | Observability: per-collective phase timing / binary event trace. No effect on behavior. |
 
 Platform things (device selection, HCA choice, NIC sharing topology) are

@@ -19,9 +19,13 @@ SRC   := src/util.cc src/topo.cc src/net.cc src/engine.cc src/verbs.cc src/api.c
 OBJ   := $(SRC:.cc=.o)
 BUILD := aux/build
 
-all: $(BUILD)/libmosaic.so $(BUILD)/bench_a2a $(BUILD)/test_topo $(BUILD)/replay_core_test $(BUILD)/test_kcons
+all: $(BUILD)/libmosaic.so $(BUILD)/bench_a2a $(BUILD)/test_topo $(BUILD)/replay_core_test $(BUILD)/test_kcons $(BUILD)/decider_abc_test
 
 $(BUILD)/replay_core_test: aux/tests/replay_core_test.cc $(BUILD)/libmosaic.so | $(BUILD)
+	$(CXX) $(CXXFLAGS) $< -o $@ -L$(BUILD) -lmosaic $(LDFLAGS) -Wl,-rpath,$(abspath $(BUILD))
+
+# 决策者/视野/顺序 离线判别(local-0823-decider-abc;零通信,纯决策层)
+$(BUILD)/decider_abc_test: aux/tests/decider_abc_test.cc $(BUILD)/libmosaic.so | $(BUILD)
 	$(CXX) $(CXXFLAGS) $< -o $@ -L$(BUILD) -lmosaic $(LDFLAGS) -Wl,-rpath,$(abspath $(BUILD))
 
 # S3 二期消费者内核独立单测(单 GPU,无网络;JIT 同一份嵌入 PTX)

@@ -1025,7 +1025,27 @@ public:
         }
     }
 
+    // src-driven dispatch phase (mirrors the runtime's MOSAIC_SRC_DRIVEN +
+    // phase=1 path; enable with -mosaic_src_driven). Requires the ledger:
+    // the src allocator is ledger waterfilling; the lambda/pacing/ramp
+    // machinery is dst-wave-centric and stays off in this mode.
+    void set_src_driven(bool on) {
+        _src_driven = on;
+        if (on) {
+            _src_state.resize(_node_count);
+        }
+    }
+
     void start() {
+        if (_src_driven) {
+            if (!_ledger) {
+                throw runtime_error("mosaic: src_driven requires the ledger");
+            }
+            for (uint32_t s = 0; s < _node_count; s++) {
+                emit_src_wave(s);
+            }
+            return;
+        }
         for (uint32_t d = 0; d < _node_count; d++) {
             emit_wave(d);
         }
@@ -1067,10 +1087,29 @@ public:
             lg_hop_delivered(chain.hops[0].src, done.src, done.dst,
                              chain.bytes);
         }
+        // src-driven: hop-0 delivery of a cross-server chain = the sender's
+        // ACK signal (rt: RC send CQ completion). Feed the src's wave gate
+        // and advance its wave once the threshold is crossed.
+        if (_src_driven && chain.next_hop == 0
+            && server_of(chain.hops[0].src) != server_of(chain.hops[0].dst)) {
+            uint32_t s = chain.hops[0].src;
+            SrcState& sst = _src_state[s];
+            if (chain.wave < sst.stats.size()) {
+                SrcWaveStats& sw = sst.stats[chain.wave];
+                sw.acked += chain.bytes;
+                if (chain.wave == sst.emit_wave - 1 && !sst.next_triggered
+                    && sw.emitted_nic > 0
+                    && sw.acked * 100 >= (uint64_t)(_threshold * 100)
+                                          * sw.emitted_nic) {
+                    sst.next_triggered = true;
+                    emit_src_wave(s);
+                }
+            }
+        }
 
         chain.next_hop++;
         if (chain.next_hop < chain.hops.size()) {
-            if (chain.mixed) {
+            if (chain.mixed && !_src_driven) {
                 // Relay hop advanced: the corridor is congested-but-alive,
                 // which the E5 censoring fix distinguishes from dead.
                 _dst_state[chain.dst].stats[chain.wave]
@@ -1092,6 +1131,9 @@ public:
                 trace_dst_done(chain.dst);
             }
             on_dst_complete();
+        }
+        if (_src_driven) {
+            return;   // dst wave stats are never sized in src-driven mode
         }
         DstState& state = _dst_state[chain.dst];
         WaveStats& wave = state.stats[chain.wave];
@@ -1228,6 +1270,23 @@ private:
         bool next_triggered = false;
         bool paced = false;          // F6: wave withheld, waiting on hot
         vector<WaveStats> stats;
+    };
+
+    // src-driven dispatch (task 2, File/design-global-view-src-driven-0823.md):
+    // decision goes to the side with EQUAL totals. In the dispatch phase every
+    // src emits the same volume, so each src waterfills its own ROW; the wave
+    // becomes the src's pipelining unit, advanced when the previous wave's
+    // cross-server hop-0 deliveries (the sim analogue of RC ACK: the byte has
+    // left the sender and landed at the next hop) pass `_threshold`.
+    struct SrcWaveStats {
+        uint64_t emitted = 0;        // all bytes emitted this wave
+        uint64_t emitted_nic = 0;    // bytes whose hop 0 crosses servers
+        uint64_t acked = 0;          // of those, hop 0 delivered
+    };
+    struct SrcState {
+        uint32_t emit_wave = 0;
+        bool next_triggered = false;
+        vector<SrcWaveStats> stats;
     };
 
     void set_uniform_lambda(DstState& state) {
@@ -1631,12 +1690,22 @@ private:
         chain->next_hop = 0;
         chain->next_packet_id = 1;
         _chains.push_back(chain);
-        WaveStats& ws = _dst_state[d].stats[wave];
-        ws.emitted += bytes;
-        if (mixed) {
-            ws.corridor_emitted[corridor] += bytes;
-            if (!ws.hemitted.empty()) {
-                ws.hemitted[chain->src_host][corridor] += bytes;
+        if (_src_driven) {
+            // wave stats live on the deciding SRC; dst wave stats are never
+            // sized in this mode (indexing them would be out of bounds)
+            SrcWaveStats& ss = _src_state[s].stats[wave];
+            ss.emitted += bytes;
+            if (server_of(hops[0].src) != server_of(hops[0].dst)) {
+                ss.emitted_nic += bytes;
+            }
+        } else {
+            WaveStats& ws = _dst_state[d].stats[wave];
+            ws.emitted += bytes;
+            if (mixed) {
+                ws.corridor_emitted[corridor] += bytes;
+                if (!ws.hemitted.empty()) {
+                    ws.hemitted[chain->src_host][corridor] += bytes;
+                }
             }
         }
         if (_ledger && _lg_spineagg) {
@@ -1647,11 +1716,17 @@ private:
                     break;
                 }
             }
-            (chain->fab ? ws.fab_emitted : ws.nofab_emitted) += bytes;
+            if (!_src_driven) {   // phi outer loop is dst-wave feedback
+                WaveStats& ws = _dst_state[d].stats[wave];
+                (chain->fab ? ws.fab_emitted : ws.nofab_emitted) += bytes;
+            }
         }
         if (_ledger) {
-            lg_charge_chain(chain->hops[0].src, d, chain->hops,
-                            bytes);                // assigned, all hops
+            // charge attribution goes to the DECIDER (single writer of the
+            // channel-B entry): the dst whose wave allocated the chain, or
+            // the src in src-driven dispatch.
+            lg_charge_chain(chain->hops[0].src, _src_driven ? s : d,
+                            chain->hops, bytes);   // assigned, all hops
         }
         inject_hop(*chain);
     }
@@ -1903,7 +1978,11 @@ public:
                     _lg_dis_snap = e.dis;
                     _lg_rate_snap = e.rate;
                 }
-                emit_wave_body(e.d);
+                if (_src_driven) {
+                    emit_src_wave_body(e.d);   // e.d carries the src id
+                } else {
+                    emit_wave_body(e.d);
+                }
                 i = 0;                   // queue may have changed
             } else {
                 i++;
@@ -2131,7 +2210,11 @@ private:
                             break;
                         }
                     }
-                    double lv = (lg_view_out(_lg_bcast ? d : s, r) + pend
+                    // origin = the DECIDER whose own charges are read live
+                // (dst-wave: d; src-driven dispatch: s); non-bcast modes
+                // keep the sender-private view.
+                double lv = (lg_view_out(_lg_bcast ? (_src_driven ? s : d)
+                                                   : s, r) + pend
                                  + (double)delta) / lg_view_rate(r);
                     if (lv > lvl) {
                         lvl = lv;
@@ -2556,6 +2639,110 @@ private:
         }
         if (_cold_pace > 0 && d == _pace_hot) {
             release_paced();
+        }
+    }
+
+    // src-driven wave emission (task 2). Same stagger discipline as
+    // emit_wave (slot = s mod 8): n srcs trigger within nanoseconds of each
+    // other and must get a chance to read earlier slots' channel-B
+    // publications before deciding.
+    void emit_src_wave(uint32_t s) {
+        if (_ledger && _lg_bcast && _lg_stagger_ps > 0) {
+            LgEmit e;
+            e.due = EventList::now() + (simtime_picosec)(s % 8)
+                * _lg_stagger_ps;
+            e.d = s;
+            if (e.due == EventList::now()) {
+                emit_src_wave_body(s);
+                return;
+            }
+            _lg_emitq.push_back(e);
+            EventList::sourceIsPending(*this, e.due);
+            return;
+        }
+        emit_src_wave_body(s);
+    }
+
+    void emit_src_wave_body(uint32_t s) {
+        SrcState& state = _src_state[s];
+        if (state.emit_wave >= _waves) {
+            return;
+        }
+        uint32_t w = state.emit_wave;
+        state.emit_wave++;
+        state.next_triggered = false;
+        state.stats.resize(state.emit_wave);
+
+        uint32_t waves_left = _waves - w;
+        bool last_wave = (waves_left <= 1);
+        bool emitted = false;
+
+        for (uint32_t d = 0; d < _node_count; d++) {
+            mem_b rem = (d == s) ? 0 : _remaining[s][d];
+            if (rem <= 0) {
+                continue;
+            }
+            mem_b quota = last_wave
+                ? rem : (rem + waves_left - 1) / waves_left;
+            quota = min(quota, rem);
+            _remaining[s][d] -= quota;
+            emitted = true;
+
+            if (server_of(s) == server_of(d)) {
+                if (_dtrace) {
+                    fprintf(_dtrace,
+                            "W %u D %u S %u Q %lld SH %lld 0 0 0 0 0\n",
+                            w, d, s, (long long)quota, (long long)quota);
+                }
+                emit_chain(s, d, DIRECT, false, quota, w);
+                continue;
+            }
+
+            bool usable[CORRIDORS];
+            pair_corridors(s, d, usable);
+            mem_b share[CORRIDORS] = {0, 0, 0, 0};
+            if (_lg_spineagg) {
+                lg_split_2level(s, d, usable, quota, share);
+            } else {
+                lg_split(s, d, usable, quota, share);
+            }
+            if (_dtrace) {
+                fprintf(_dtrace,
+                        "W %u D %u S %u Q %lld SH %lld %lld %lld %lld %lld"
+                        " %lld\n",
+                        w, d, s, (long long)quota, (long long)share[0],
+                        (long long)share[1], (long long)share[2],
+                        (long long)share[3], (long long)share[4],
+                        (long long)share[5]);
+            }
+            for (uint32_t c = 0; c < CORRIDORS; c++) {
+                if (share[c] <= 0) {
+                    continue;
+                }
+                if (_lg_bcast) {
+                    _lg_pub_entries++;
+                }
+                mem_b left2 = share[c];
+                while (left2 > 0) {
+                    mem_b piece = min(left2, _lg_chain_cap);
+                    emit_chain(s, d, c, true, piece, w);
+                    left2 -= piece;
+                }
+            }
+        }
+
+        if (_ledger && _lg_bcast && emitted) {
+            lg_publish(s);   // channel B, attributed to the deciding src
+        }
+        if (!emitted && state.emit_wave < _waves) {
+            state.emit_wave = _waves;
+        }
+        // A wave with no cross-server hop-0 bytes has no ACK events to
+        // trigger on (rt: immediate advance) -- move on right away.
+        if (emitted && state.emit_wave < _waves
+            && state.stats[w].emitted_nic == 0) {
+            state.next_triggered = true;
+            emit_src_wave(s);
         }
     }
 
@@ -3201,6 +3388,8 @@ private:
     double _planeb_factor;
     vector<ChainState*> _chains;
     vector<DstState> _dst_state;
+    vector<SrcState> _src_state;           // src-driven dispatch (task 2)
+    bool _src_driven = false;
     vector<uint64_t> _dst_expected;
     vector<uint64_t> _dst_delivered;
     vector<bool> _dst_done;

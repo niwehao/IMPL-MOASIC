@@ -24,7 +24,9 @@ import time
 import torch
 import torch.distributed as dist
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "mosaic-rt", "aux", "python"))
+# 本文件在 Impl/mosaic-rt/nccl/ 下,绑定层在 ../aux/python(Raven 模板另经
+# PYTHONPATH 提供,两者并存无害)
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "aux", "python"))
 
 
 def build_demand(n, msg, alpha, seed, mode="hotdst", gran=4096):
@@ -72,6 +74,9 @@ def main():
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--mode", default="hotdst")
     ap.add_argument("--sched", default="mosaic")
+    # 相位(mosaic.h 契约):本项目每个 a2a 必居其一 —— build_demand 的各模式
+    # 都是行全等构造 ⇒ 默认 1 = dispatch(src 决策);2 = combine(dst 决策)
+    ap.add_argument("--phase", type=int, default=1, choices=[1, 2])
     a = ap.parse_args()
 
     rank, world = int(os.environ["RANK"]), int(os.environ["WORLD_SIZE"])
@@ -99,13 +104,15 @@ def main():
         hosts = os.environ.get("MOSAIC_HOSTS", "192.168.100.2,192.168.100.1")
         comm = mp.Comm(rank=rank, nranks=world, gpus_per_host=int(os.environ.get("MOSAIC_G", 1)),
                        hosts=hosts, sched=a.sched, job=int(os.environ.get("MOSAIC_JOB", 7)))
+        phase = a.phase   # run() 内部的位移累加变量会遮蔽 argparse 的 a,先取出
         def run():
             st = torch.cuda.current_stream().cuda_stream or 1
             sc = [r * ROW for r in srow]; rc2 = [r * ROW for r in rrow]
             sd = []; rd = []; a = 0; b = 0
             for x in sc: sd.append(a); a += x
             for x in rc2: rd.append(b); b += x
-            comm.alltoallv(send.data_ptr(), sc, sd, recv.data_ptr(), rc2, rd, stream=st)
+            comm.alltoallv(send.data_ptr(), sc, sd, recv.data_ptr(), rc2, rd,
+                           stream=st, phase=phase)
             # 只等 caller 流(= 门核放行 = recvbuf 就绪,与训练同语义)。
             # 设备级 synchronize 会连消费者核一起等,把 recv-即-开门量没了。
             torch.cuda.current_stream().synchronize()

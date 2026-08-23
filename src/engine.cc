@@ -59,6 +59,27 @@ static int opt_demand_ssp() { static int v = env_flag("MOSAIC_DEMAND_SSP", 1); r
 static int opt_telem_targeted() { static int v = env_flag("MOSAIC_TELEM_TARGETED", 1); return v; }
 // S2 自动选档(sota_plan;默认关):coll_begin 按 demand 形态选本次 W/C
 static int opt_auto_tier() { static int v = env_flag("MOSAIC_AUTO_TIER", 0); return v; }
+// 任务一 全局账本视野(File/design-global-view-src-driven-0823.md §1):
+// 1(默认)= 通道 B 的完整分配广播给**所有** rank(中转节点也能把"被借了
+// 多少"记进账本,分布式全局视野在协议层成立);0 = 旧行为(只发给本波的
+// src,账本对中转占用残缺 —— A/B 退路)。开销差见 chB_bytes 计量。
+static int opt_policy_gbcast() { static int v = env_flag("MOSAIC_POLICY_GBCAST", 1); return v; }
+// 任务二 按阶段反转决策者:1(默认)= dispatch 相(coll_phase=1)由 src 驱动
+// 发波(决策权给"总量相等"的那一侧);0 = 全部 collective 保持 dst 驱动
+//(A/B 退路)。combine/未知相恒 dst 驱动,不受本旋钮影响。
+static int opt_src_driven() { static int v = env_flag("MOSAIC_SRC_DRIVEN", 1); return v; }
+// 波推进阈值(dst 环 = 上一波已交付比例;src 环 = 上一波跨机字节已 ACK 比例)。
+// 默认 0.75 = 模拟器 _threshold 的既有标定(报告 §11.2);调大 = 波间流水更浅
+// 但重规划用的账本更新;调小 = 更激进的流水但下一波决策基于更早的态。
+static double wave_thresh() {
+  static double v = -1;
+  if (v < 0) {
+    const char* e = getenv("MOSAIC_WAVE_THRESH");
+    v = e && *e ? atof(e) : 0.75;
+    if (v <= 0 || v > 1) v = 0.75;
+  }
+  return v;
+}
 // 目标碎片大小(KB):>0 时按"每对字节 ÷ (目标碎片 × 走廊数)"反推波数。
 // 0 = 关(旧行为)。动机与实测见 coll_begin 里的注释。
 static int opt_wave_frag_kb() { static int v = env_flag("MOSAIC_WAVE_FRAG_KB", 0); return v; }
@@ -368,7 +389,11 @@ struct WaitRelay {          // 到达了但中转池满,先扣着源槽等
   bool via_nic;
 };
 
-struct EarlyPolicy { int peer; uint16_t wave; uint8_t cid8; std::vector<PolicyEnt> ents; };
+struct EarlyPolicy {
+  int peer; uint16_t wave; uint8_t cid8;
+  bool from_src = false;             // CT_POLICY_SRC(纯账本视图,永不执行)
+  std::vector<PolicyEnt> ents;
+};
 
 // demand pend 环的深度(2 的幂)= **允许的 rank 间 collective 漂移上限**。
 // 行是稀疏寄存的(每槽的 vector 懒分配),加深只在真漂移那么多时才占内存。
@@ -642,6 +667,61 @@ static void emit_range(Comm* c, int dst, int corr, uint64_t off, uint64_t len, i
   emit_chain(c, dst, ch, off, len, wave);
 }
 
+// 一个 (s→d) pair 的配额注水:按账本代价把 quota 切进可用走廊(per_corr),
+// charges 记入本地账本。dst 驱动(d=me)与 src 驱动(s=me)共用 ——
+// 注水算法的唯一来源,两相的决策可与模拟器 lg_split 逐字对拍。
+// 返回可用走廊数(0 = 该 pair 无路可走,调用方跳过)。
+static int waterfill_pair(Comm* c, int s, int d, uint64_t quota, int c_limit,
+                          uint64_t per_corr[NCORR]) {
+  int cl[NCORR], ncl = c->topo.corridors_of(s, d, c_limit, cl);
+  if (ncl == 0) return 0;
+  for (int i = 0; i < NCORR; i++) per_corr[i] = 0;
+  if (!c->cfg.ledger || ncl == 1) {
+    per_corr[cl[0]] = quota;                   // 退化档:全走第一条(= DIRECT/NV)
+    // **必须照样记账**:机内 pair 只有一条走廊(NV 单跳),但它占用的正是
+    // 目的地的 NV 下行管。不记的话,后面规划跨机流量时账本会认为 NV 管空闲,
+    // 于是把大量跨机流量改道到早已饱和的 NV 管上 —— 那恰好推翻 §4.2
+    // 「same_d 与 cross_d 在两管间注水」的整个前提。
+    // 实测代价:0.5:1 点上 69% 的跨机流量被错误改道,慢 2 倍。
+    if (c->cfg.ledger) {
+      Chain ch0;
+      if (c->topo.chain_of(s, d, cl[0], &ch0)) charge_chain_local(c, ch0, quota);
+    }
+    return ncl;
+  }
+  // 24 步贪心注水。粒度**不能**用 slice_bytes 兜底:那是传输层的分片大小,
+  // 与规划粒度是两码事。步长公式与模拟器 lg_split 逐字一致:
+  // step = ((quota/24)/1024)*1024,地板 1024。
+  uint64_t gran = ((quota / 24) / 1024) * 1024;
+  if (gran < 1024) gran = 1024;
+  uint64_t done = 0;
+  while (done < quota) {
+    uint64_t g = std::min(gran, quota - done);
+    // tie-break 与模拟器逐字一致:best_lvl 是**运行最小值**(只在更低时更新),
+    // 5% 级带内取短链。
+    int best = -1; double best_lvl = 0; int best_hops = 99;
+    for (int i = 0; i < ncl; i++) {
+      Chain ch;
+      if (!c->topo.chain_of(s, d, cl[i], &ch)) continue;
+      double v = corridor_cost(c, ch, g);
+      if (best < 0) {
+        best = i; best_lvl = v; best_hops = ch.nhops;
+      } else if (v < best_lvl * 0.95 ||
+                 (v < best_lvl * 1.05 && ch.nhops < best_hops)) {
+        best = i; best_hops = ch.nhops;
+        if (v < best_lvl) best_lvl = v;
+      }
+    }
+    if (best < 0) break;
+    Chain ch;
+    c->topo.chain_of(s, d, cl[best], &ch);
+    charge_chain_local(c, ch, g);
+    per_corr[cl[best]] += g;
+    done += g;
+  }
+  return ncl;
+}
+
 // ─────────────────────────────────────────────────────────── 波装配(dst 控制环)
 static void emit_wave(Comm* c) {
   DstCtrl& d = c->dst;
@@ -661,55 +741,9 @@ static void emit_wave(Comm* c) {
                                        : (d.remaining[s] + waves_left - 1) / waves_left;
     // 承诺兑现:corridor_intent_bit=0 的 coll 只许直发 —— 中转义务门凭承诺位
     // 放行别人收尾,违背 = 对端已拆核,中转片静默丢失
-    int cl[NCORR], ncl = c->topo.corridors_of(
-        s, me, c->my_corr_intent ? eff_C(c) : 1, cl);
-    if (ncl == 0) continue;
-
-    uint64_t per_corr[NCORR] = {0};
-    if (!c->cfg.ledger || ncl == 1) {
-      per_corr[cl[0]] = quota;                   // 退化档:全走第一条(= DIRECT/NV)
-      // **必须照样记账**:机内 pair 只有一条走廊(NV 单跳),但它占用的正是
-      // 目的地的 NV 下行管。不记的话,后面规划跨机流量时账本会认为 NV 管空闲,
-      // 于是把大量跨机流量改道到早已饱和的 NV 管上 —— 这恰好推翻 §4.2
-      // 「same_d 与 cross_d 在两管间注水」的整个前提。
-      // 实测代价:0.5:1 点上 69% 的跨机流量被错误改道,慢 2 倍。
-      if (c->cfg.ledger) {
-        Chain ch0;
-        if (c->topo.chain_of(s, me, cl[0], &ch0)) charge_chain_local(c, ch0, quota);
-      }
-    } else {
-      // 24 步贪心注水。粒度**不能**用 slice_bytes 兜底:那是传输层的分片大小,
-      // 与规划粒度是两码事(旧注释保留,坑不再赘述)。步长公式与模拟器 lg_split
-      // 逐字一致:step = ((quota/24)/1024)*1024,地板 1024(旧版 4096 地板 +
-      // 不对齐是移植分歧,决策对拍时修正)。
-      uint64_t gran = ((quota / 24) / 1024) * 1024;
-      if (gran < 1024) gran = 1024;
-      uint64_t done = 0;
-      while (done < quota) {
-        uint64_t g = std::min(gran, quota - done);
-        // tie-break 与模拟器逐字一致:best_lvl 是**运行最小值**(只在更低时更新),
-        // 5% 级带内取短链;旧版把 band 基准覆盖成当前值,是移植分歧,已修。
-        int best = -1; double best_lvl = 0; int best_hops = 99;
-        for (int i = 0; i < ncl; i++) {
-          Chain ch;
-          if (!c->topo.chain_of(s, me, cl[i], &ch)) continue;
-          double v = corridor_cost(c, ch, g);
-          if (best < 0) {
-            best = i; best_lvl = v; best_hops = ch.nhops;
-          } else if (v < best_lvl * 0.95 ||
-                     (v < best_lvl * 1.05 && ch.nhops < best_hops)) {
-            best = i; best_hops = ch.nhops;
-            if (v < best_lvl) best_lvl = v;
-          }
-        }
-        if (best < 0) break;
-        Chain ch;
-        c->topo.chain_of(s, me, cl[best], &ch);
-        charge_chain_local(c, ch, g);
-        per_corr[cl[best]] += g;
-        done += g;
-      }
-    }
+    uint64_t per_corr[NCORR];
+    if (!waterfill_pair(c, s, me, quota, c->my_corr_intent ? eff_C(c) : 1, per_corr))
+      continue;
     // 比例定了之后再切**连续**区间:每 (src,corridor) 一条 entry
     // (线上报文因此是 O(n·C) 而不是 O(n·24),与论文的 0.3-2.6KB 量级一致)
     uint64_t cur = d.cursor[s];
@@ -755,20 +789,38 @@ static void emit_wave(Comm* c) {
   c->st.waves_emitted++;
 
   // 通道 B:把这一波怎么分广播出去。它同时是**执行指令**,所以走可靠通道。
+  // aux 高 8 位 = coll_id(mod 256):hint(O2)下对端可能仍在上一个 collective,
+  // 收端凭它把"来自我下一个 collective 的策略"寄存而不是误执行(数据安全线)。
   if (!ents.empty() && c->cfg.bcast) {
-    for (int p = 0; p < n; p++) {
-      if (p == me) continue;
-      // 只发与该 rank 相关的条目(它是 src 才需要执行);账本视图靠 charges 累加
-      std::vector<PolicyEnt> mine;
-      for (auto& e : ents) if (e.src == p) mine.push_back(e);
-      if (mine.empty()) continue;
-      // aux 高 8 位 = coll_id(mod 256):hint(O2)下对端可能仍在上一个 collective,
-      // 收端凭它把"来自我下一个 collective 的策略"寄存而不是误执行(数据安全线)
-      ctrl_send(c, p, CT_POLICY,
-                (uint16_t)(((c->coll_id & 0xFF) << 8) | (d.wave_idx & 0xFF)), mine.data(),
-                (uint32_t)(mine.size() * sizeof(PolicyEnt)));
-      c->st.chB_msgs++;
-      c->st.chB_bytes += sizeof(CtrlHdr) + mine.size() * sizeof(PolicyEnt);
+    const uint16_t aux = (uint16_t)(((c->coll_id & 0xFF) << 8) | (d.wave_idx & 0xFF));
+    if (opt_policy_gbcast()) {
+      // 任务一(全局账本视野):**完整分配发给所有 rank** —— 一条链的占用含
+      // 中转跳(RX/TX/SPREAD 借道第三方的 NV/NIC),中转节点必须知道自己被借
+      // 了多少,否则它自己决策时会高估可用带宽。收方 apply_policy 对全部条目
+      // 累加 charges(peer_acc[发布者] 因此是完整视图),只执行 src==自己的
+      // 条目。归属按**决策者**(单写者,与模拟器 _lg_chg_by/_lg_pubsum 同型,
+      // 无重复计账);条目列表就是 charges 的紧凑编码,免 O(nres) 全向量。
+      // 代价 = 每 rank 收到全量条目而非自己那几条,进 chB_bytes 计量。
+      for (int p = 0; p < n; p++) {
+        if (p == me) continue;
+        ctrl_send(c, p, CT_POLICY, aux, ents.data(),
+                  (uint32_t)(ents.size() * sizeof(PolicyEnt)));
+        c->st.chB_msgs++;
+        c->st.chB_bytes += sizeof(CtrlHdr) + ents.size() * sizeof(PolicyEnt);
+      }
+    } else {
+      // MOSAIC_POLICY_GBCAST=0(A/B 退路):只发给本波的 src —— 非 src 的
+      // rank 看不到这份策略,它对中转占用的账本视图残缺
+      for (int p = 0; p < n; p++) {
+        if (p == me) continue;
+        std::vector<PolicyEnt> mine;
+        for (auto& e : ents) if (e.src == p) mine.push_back(e);
+        if (mine.empty()) continue;
+        ctrl_send(c, p, CT_POLICY, aux, mine.data(),
+                  (uint32_t)(mine.size() * sizeof(PolicyEnt)));
+        c->st.chB_msgs++;
+        c->st.chB_bytes += sizeof(CtrlHdr) + mine.size() * sizeof(PolicyEnt);
+      }
     }
   }
   // 本 rank 自己作为 src 的部分直接执行
@@ -788,12 +840,124 @@ void engine_test_emit_wave(Comm* c) {
   // (rcounts 从 remaining 同步 —— 真路径里 remaining 正是从 rcounts 来的)
   for (int s = 0; s < c->cfg.nranks; s++)
     if (s != c->cfg.rank) c->rcounts[s] = c->dst.remaining[s];
+  c->src_mode = false;
   c->my_corr_intent = corridor_intent_bit(c);
   emit_wave(c);
 }
 
+// ─────────────────────────────────────────────────────── 波装配(src 控制环)
+// dispatch 相的发波:src 对自己的行注水并**自己执行**(数据从本 rank 流出,
+// 无策略往返);通道 B 只承担账本视图(CT_POLICY_SRC,收方永不执行)。
+// 结构与 emit_wave 镜像,注水共用 waterfill_pair —— 两相决策同源可对拍。
+static void emit_wave_src(Comm* c) {
+  SrcCtrl& s = c->srcc;
+  const int n = c->cfg.nranks, me = c->cfg.rank;
+  const uint64_t t0 = now_ns();
+
+  int waves_left = eff_W(c) - s.wave_idx;
+  if (waves_left < 1) waves_left = 1;
+
+  std::vector<PolicyEnt> ents;
+  ents.reserve(n * NCORR);
+  uint64_t wave_total = 0, wave_nic = 0;
+
+  for (int d2 = 0; d2 < n; d2++) {
+    if (d2 == me || s.remaining[d2] == 0) continue;
+    // 行门(不变量替代握手,internal.h peer_row_seen):对端本 coll 的行未到
+    // = 无法证明它的 recv 缓冲已切换,本波跳过它;行到后由 pump_protocol 的
+    // 补发路径追齐。离线回放(peer_row_seen 空)视为全开。
+    if (!c->peer_row_seen.empty() && !c->peer_row_seen[d2]) continue;
+    uint64_t quota = (waves_left <= 1) ? s.remaining[d2]
+                                       : (s.remaining[d2] + waves_left - 1) / waves_left;
+    uint64_t per_corr[NCORR];
+    if (!waterfill_pair(c, me, d2, quota, c->my_corr_intent ? eff_C(c) : 1, per_corr))
+      continue;
+    uint64_t cur = s.cursor[d2];
+    for (int cc = 0; cc < NCORR; cc++) {
+      if (!per_corr[cc]) continue;
+      PolicyEnt e{};
+      e.src = (uint16_t)d2;                 // CT_POLICY_SRC 语义:端点 = dst
+      e.corr = (uint8_t)cc;
+      e.off = cur; e.len = (uint32_t)per_corr[cc];
+      ents.push_back(e);
+      c->st.ingress_corr[cc & 7] += per_corr[cc];   // src 相 = 出流分配(mosaic.h 注)
+      Chain ch;
+      if (c->topo.chain_of(me, d2, cc, &ch) && !c->topo.same_host(me, ch.path[1]))
+        wave_nic += per_corr[cc];           // hop0 跨机才有 RC ACK,进 ack 门分母
+      cur += per_corr[cc];
+      wave_total += per_corr[cc];
+    }
+    s.cursor[d2] = cur;
+    s.remaining[d2] -= std::min(s.remaining[d2], quota);
+  }
+
+  s.wave_nic_bytes = wave_nic;
+  s.wave_acked = 0;
+  s.wave_start_ns = now_ns();
+  // 兜底期限:src 的波从本 rank 的出向管(NV↑+NIC↑)离开,估计式 =
+  // 波字节 ÷ 出向聚合额定 ×(与 dst 环同一个 MOSAIC_WAVE_DEADLINE 倍数)。
+  // dst 环的公式对的是"进向聚合"(nv+nic 同数值),src 侧语义换成出向。
+  {
+    double cap_Bps = (c->cfg.nv_gbps + c->cfg.nic_gbps) * 1e9 / 8.0;
+    double est_us = cap_Bps > 0 ? (double)wave_total / cap_Bps * 1e6 : 0;
+    static double dl_mult = -1;
+    if (dl_mult < 0) {
+      const char* e = getenv("MOSAIC_WAVE_DEADLINE");
+      dl_mult = e && *e ? atof(e) : 1.5;
+    }
+    s.wave_deadline_ns = dl_mult > 0
+        ? s.wave_start_ns + (uint64_t)(est_us * dl_mult * 1000.0) : 0;
+  }
+
+  double plan_us = (now_ns() - t0) / 1000.0;
+  c->st.plan_us_total += plan_us; c->st.plan_calls++;
+  if (plan_us > c->st.plan_us_max) c->st.plan_us_max = plan_us;
+  c->plan_hist[c->plan_hist_n++ & 255] = plan_us;
+  c->st.waves_emitted++;
+
+  // 通道 B:src 波的完整分配广播给**所有** rank(纯账本视图;任务一的全局
+  // 视野在 src 相的对应物 —— 中转节点从这里知道自己被借了多少)。
+  if (!ents.empty() && c->cfg.bcast) {
+    const uint16_t aux = (uint16_t)(((c->coll_id & 0xFF) << 8) | (s.wave_idx & 0xFF));
+    for (int p = 0; p < n; p++) {
+      if (p == me) continue;
+      ctrl_send(c, p, CT_POLICY_SRC, aux, ents.data(),
+                (uint32_t)(ents.size() * sizeof(PolicyEnt)));
+      c->st.chB_msgs++;
+      c->st.chB_bytes += sizeof(CtrlHdr) + ents.size() * sizeof(PolicyEnt);
+    }
+  }
+  // 自己执行:条目端点是 dst,数据从 sendbuf + sdispls[dst] + off 切片发射
+  for (auto& e : ents) emit_range(c, e.src, e.corr, e.off, e.len, s.wave_idx);
+
+  MLOG_DBG("src wave %d 装配:%llu 字节(nic %llu)%zu 条 plan=%.1fus", s.wave_idx,
+           (unsigned long long)wave_total, (unsigned long long)wave_nic,
+           ents.size(), plan_us);
+  c->dbg_last_ents = ents;
+  MTRACE(TE_WAVE_EMIT, (uint32_t)s.wave_idx, wave_total, (uint64_t)plan_us);
+  s.wave_idx++;
+}
+
+void engine_test_emit_wave_src(Comm* c) {
+  for (int d = 0; d < c->cfg.nranks; d++)
+    if (d != c->cfg.rank) c->scounts[d] = c->srcc.remaining[d];
+  c->src_mode = true;
+  c->my_corr_intent = corridor_intent_bit(c);
+  emit_wave_src(c);
+}
+
+// src 波的 ACK 计数(verbs_poll 数据 WR send CQ 成功时调):RC send 完成 =
+// 对端已收。只计 hop0 且 h.src==me 的片(= 本 rank 自己的行字节;中转转发的
+// 片 hop>0,不属于本 rank 的波)。
+void src_wave_ack(Comm* c, const SliceHdr& h) {
+  if (!c->src_mode || !c->srcc.active) return;
+  if (h.hop != 0 || (int)h.src != c->cfg.rank) return;
+  if ((int)h.wave == c->srcc.wave_idx - 1) c->srcc.wave_acked += h.len;
+}
+
 // DIRECT:不需要 dst 协调,每个 src 用全局矩阵自己算自己的行(诊断位)
 static void apply_policy(Comm* c, int peer, uint16_t wave, const PolicyEnt* e, int ne);
+static void apply_policy_src(Comm* c, int peer, const PolicyEnt* e, int ne);
 
 static void plan_static(Comm* c) {
   const int n = c->cfg.nranks, me = c->cfg.rank;
@@ -862,16 +1026,21 @@ static uint8_t corridor_intent_bit(Comm* c) {
   if (c->topo.net_rail) return 1;    // rail 档跨轨无直连,结构性依赖中转
   const int n = c->cfg.nranks, me = c->cfg.rank;
   int cl[NCORR], res_d[16], res_c[16];
-  for (int s = 0; s < n; s++) {
-    if (s == me || c->rcounts[s] == 0 || c->topo.same_host(s, me)) continue;
+  for (int p = 0; p < n; p++) {
+    // 谓词按**决策方向**取 pair:dst 相看入向列(s=p→me,量 = rcounts),
+    // src 相看出向行(me→d=p,量 = scounts)—— 承诺的都是"我做的计划
+    // 会不会借道第三方",只是计划的方向随决策者反转。
+    const int s = c->src_mode ? me : p, d = c->src_mode ? p : me;
+    const uint64_t cnt = c->src_mode ? c->scounts[p] : c->rcounts[p];
+    if (p == me || cnt == 0 || c->topo.same_host(p, me)) continue;
     Chain dch;
-    if (!c->topo.chain_of(s, me, CORR_DIRECT, &dch)) continue;
+    if (!c->topo.chain_of(s, d, CORR_DIRECT, &dch)) continue;
     int nd = c->topo.chain_res(dch, res_d);
-    int ncl = c->topo.corridors_of(s, me, c->cfg.corridors, cl);
+    int ncl = c->topo.corridors_of(s, d, c->cfg.corridors, cl);
     for (int i = 0; i < ncl; i++) {
       if (cl[i] == CORR_DIRECT) continue;
       Chain ch;
-      if (!c->topo.chain_of(s, me, cl[i], &ch)) continue;
+      if (!c->topo.chain_of(s, d, cl[i], &ch)) continue;
       int nc = c->topo.chain_res(ch, res_c);
       for (int k = 0; k < nc; k++) {
         if (res_c[k] >= n * RES_KINDS) continue;            // fabric 聚合账不算
@@ -996,6 +1165,21 @@ static void coll_begin(Comm* c) {
   c->total_send = 0;
   for (int t = 0; t < n; t++) if (t != me) c->total_send += c->scounts[t];
   c->posted_send = 0;
+
+  // src 驱动 dispatch(任务二):发波控制环换到 src 侧 —— remaining 是我的
+  // **行**(scounts,本地权威,零通信)。dst 环仍负责收账/FIN/完成判据,
+  // 只是不再发波(pump_protocol 的 dst 触发块按 src_mode 旁路)。
+  c->srcc = SrcCtrl();
+  if (c->src_mode) {
+    c->srcc.active = true;
+    for (int t = 0; t < n; t++)
+      if (t != me) c->srcc.remaining[t] = c->scounts[t];
+    static bool logged = false;   // 一次性:确认相位真的从 L4 传到了引擎
+    if (!logged) {
+      logged = true;
+      MLOG_INFO("dispatch 相 src 驱动生效(首个 coll=%d,MOSAIC_SRC_DRIVEN=0 可关)", c->coll_id);
+    }
+  }
 
   // 机内自拷贝(s == d)直接做掉,不进调度。
   g_ev_phase = 17;
@@ -1247,8 +1431,10 @@ static void coll_begin(Comm* c) {
   c->pace_cold.assign(n, 0);
   c->peer_wave.assign(n, 0);
   c->peer_fin.assign(n, 0);
-  if (c->cfg.sched == MOSAIC_SCHED_MOSAIC && c->cfg.cold_pace > 0 && !c->tier_blind &&
-      c->cfg.nv_gbps > 0 && c->cfg.nic_gbps > 0) {
+  // (src 相不开 PACE:PACE 是 dst 发波节奏的协调;src 相的公平性由
+  //  "行全等 ⇒ 决策者规模相同"结构性成立,不需要节奏协调)
+  if (c->cfg.sched == MOSAIC_SCHED_MOSAIC && !c->src_mode && c->cfg.cold_pace > 0 &&
+      !c->tier_blind && c->cfg.nv_gbps > 0 && c->cfg.nic_gbps > 0) {
     double spine_share = c->cfg.spine_gbps > 0 ? c->cfg.spine_gbps / c->cfg.gpus_per_host : 0;
     if (!(spine_share > 0 && spine_share < c->cfg.nic_gbps)) {
       std::vector<double> tt(n, 0);
@@ -1301,28 +1487,36 @@ static void coll_begin(Comm* c) {
   if (c->cfg.sched == MOSAIC_SCHED_MOSAIC && opt_wave_collapse() && eff_W(c) > 1) {
     bool degen = true;
     int cl[NCORR];
-    for (int s = 0; s < n && degen; s++) {
-      if (s == me || c->dst.remaining[s] == 0) continue;
-      if (c->topo.corridors_of(s, me, eff_C(c), cl) > 1) degen = false;
+    // 折叠谓词按决策方向取 pair 集:dst 相 = 入向列,src 相 = 出向行
+    for (int p = 0; p < n && degen; p++) {
+      if (p == me) continue;
+      if (c->src_mode ? c->srcc.remaining[p] == 0 : c->dst.remaining[p] == 0) continue;
+      const int ss = c->src_mode ? me : p, dd = c->src_mode ? p : me;
+      if (c->topo.corridors_of(ss, dd, eff_C(c), cl) > 1) degen = false;
     }
-    if (degen && c->dst.total_expect > 0) {
-      c->dst.wave_idx = eff_W(c) - 1;      // waves_left=1 → 全配额一波发完
+    if (degen && (c->src_mode ? c->total_send > 0 : c->dst.total_expect > 0)) {
+      // waves_left=1 → 全配额一波发完
+      if (c->src_mode) c->srcc.wave_idx = eff_W(c) - 1;
+      else c->dst.wave_idx = eff_W(c) - 1;
       MLOG_DBG("wave collapse:无路径自由度,单波发完(coll=%d)", c->coll_id);
     }
   }
 
   g_ev_phase = 19;
-  if (c->cfg.sched == MOSAIC_SCHED_MOSAIC) emit_wave(c);
-  else plan_static(c);
+  if (c->cfg.sched == MOSAIC_SCHED_MOSAIC) {
+    if (c->src_mode) emit_wave_src(c);
+    else emit_wave(c);
+  } else plan_static(c);
 
   // 补放"比我先到"的策略广播(见 on_ctrl_msg 的 CT_POLICY 早到分支)。
   // 只放属于本 collective 的(cid8 匹配);更晚 collective 的继续留着。
   {
     std::vector<EarlyPolicy> keep;
     for (auto& ep : es->early_policy) {
-      if (ep.cid8 == (uint8_t)(c->coll_id & 0xFF))
-        apply_policy(c, ep.peer, ep.wave, ep.ents.data(), (int)ep.ents.size());
-      else
+      if (ep.cid8 == (uint8_t)(c->coll_id & 0xFF)) {
+        if (ep.from_src) apply_policy_src(c, ep.peer, ep.ents.data(), (int)ep.ents.size());
+        else apply_policy(c, ep.peer, ep.wave, ep.ents.data(), (int)ep.ents.size());
+      } else
         keep.push_back(std::move(ep));
     }
     es->early_policy.swap(keep);
@@ -1356,9 +1550,25 @@ static void coll_try_finish(Comm* c) {
   if (c->cfg.sched == MOSAIC_SCHED_MOSAIC && c->cfg.corridors > 1 &&
       c->cfg.nranks > c->cfg.gpus_per_host) {
     if (es->demand_got < c->cfg.nranks - 1) return;
-    for (int p = 0; p < c->cfg.nranks; p++)
-      if (p != c->cfg.rank && !c->peer_corr_intent.empty() &&
-          c->peer_corr_intent[p] && !c->peer_fin[p]) return;
+    if (c->src_mode) {
+      // src 相:中转义务由各 **src** 的计划产生(承诺位随行捎带、按出向行
+      // 计算)。经我中转的片以某 dst 为终点,FIN(d) ⇔ 不再有去 d 的字节 ⇒
+      // 只要有任一 src(含我)承诺过非直发,就等**全体** FIN。比 dst 相的
+      // 按-dst 精确门保守(dst 相下"谁会借我"可以从该 dst 的承诺位读出,
+      // src 相下借道关系分散在 n 个 src 的计划里,端侧无法逐 dst 判定)。
+      bool any = c->my_corr_intent != 0;
+      if (!any)
+        for (int p = 0; p < c->cfg.nranks && !any; p++)
+          if (p != c->cfg.rank && !c->peer_corr_intent.empty() &&
+              c->peer_corr_intent[p]) any = true;
+      if (any)
+        for (int p = 0; p < c->cfg.nranks; p++)
+          if (p != c->cfg.rank && !c->peer_fin[p]) return;
+    } else {
+      for (int p = 0; p < c->cfg.nranks; p++)
+        if (p != c->cfg.rank && !c->peer_corr_intent.empty() &&
+            c->peer_corr_intent[p] && !c->peer_fin[p]) return;
+    }
   }
   // **坑 #51**:零流档也不短路 h2d 检查 —— 自拷贝、以及 kdesc_resolve_src
   // 失败时回退的交付拷贝**仍在 h2d 流上**,短路掉就可能在它们落盘前宣布完成,
@@ -1403,6 +1613,7 @@ static void coll_try_finish(Comm* c) {
     }
     for (int k = 0; k < RES_KINDS; k++) c->st.res_passed[k] = c->buck[k].passed - es->base_passed[k];
     c->dst.active = false;
+    c->srcc.active = false;
     // 为下一次 collective 归零交付计数(而不是在下一次开始时清 —— 见 coll_begin)
     c->dst.total_recv = 0;
     memset(c->dst.recv_by_src, 0, sizeof(c->dst.recv_by_src));
@@ -1462,8 +1673,10 @@ static void coll_try_finish(Comm* c) {
 static void apply_policy(Comm* c, int peer, uint16_t wave, const PolicyEnt* e, int ne) {
   auto* es = ES(c);
   for (int i = 0; i < ne; i++) {
-    // 账本视图:把这一波的 charges 累加到该发布者名下(TCP 保证不丢不乱序,
-    // 所以本地累加与"发布者携带累计值"逐字节等价,却省掉 O(nres) 的报文)
+    // 账本视图:把这一波的 charges 累加到该发布者名下(可靠通道保证不丢不
+    // 乱序,本地累加与"发布者携带累计值"逐字节等价,省掉 O(nres) 报文)。
+    // 全局广播档(MOSAIC_POLICY_GBCAST=1)下 ne 覆盖该 dst 的**全部**条目,
+    // peer_acc[发布者] 因此是完整视图 —— 含借道本 rank 的中转跳。
     Chain ch;
     if (c->topo.chain_of(e[i].src, peer, e[i].corr, &ch)) {
       int res[16];
@@ -1471,6 +1684,21 @@ static void apply_policy(Comm* c, int peer, uint16_t wave, const PolicyEnt* e, i
       for (int k = 0; k < nr; k++) es->peer_acc[peer][res[k]] += e[i].len;
     }
     if (e[i].src == c->cfg.rank) emit_range(c, peer, e[i].corr, e[i].off, e[i].len, wave);
+  }
+  c->ledger.set_peer_charge(peer, es->peer_acc[peer].data(), c->topo.nres());
+}
+
+// 应用一份 src 波策略(CT_POLICY_SRC):**只记账,永不执行** —— 数据由发布者
+// 自己发出。条目端点 = dst,链 = chain_of(发布者, ent.src, ent.corr)。
+static void apply_policy_src(Comm* c, int peer, const PolicyEnt* e, int ne) {
+  auto* es = ES(c);
+  for (int i = 0; i < ne; i++) {
+    Chain ch;
+    if (c->topo.chain_of(peer, e[i].src, e[i].corr, &ch)) {
+      int res[16];
+      int nr = c->topo.chain_res(ch, res);
+      for (int k = 0; k < nr; k++) es->peer_acc[peer][res[k]] += e[i].len;
+    }
   }
   c->ledger.set_peer_charge(peer, es->peer_acc[peer].data(), c->topo.nres());
 }
@@ -1500,12 +1728,16 @@ void on_ctrl_msg(Comm* c, int peer, const CtrlHdr& h, const void* body) {
       if (cid == c->coll_id && es->demand_sent && !es->coll_started) {
         memcpy(&c->demand[(size_t)peer * n], row, sizeof(uint64_t) * n);
         if (!c->peer_corr_intent.empty()) c->peer_corr_intent[peer] = cintent;
+        if (!c->peer_row_seen.empty()) c->peer_row_seen[peer] = 1;
         es->demand_got++;
-      } else if (cid == c->coll_id && c->ssp_active && es->coll_started) {
-        // P1 SSP:collective 已开跑,行到了就后台刷新(供结束时快照 → 下次
-        // PACE/hint 用;本次注水只读本地列,不受影响)
+      } else if (cid == c->coll_id && es->coll_started &&
+                 (c->ssp_active || c->src_mode)) {
+        // P1 SSP / src 相:collective 已开跑,行到了就后台刷新(供结束时快照
+        // → 下次 PACE/hint 用;本次注水只读本地列,不受影响)。src 相下这里
+        // 同时是**行门开启点**:pump_protocol 的补发路径据此追齐迟到 dst。
         memcpy(&c->demand[(size_t)peer * n], row, sizeof(uint64_t) * n);
         if (!c->peer_corr_intent.empty()) c->peer_corr_intent[peer] = cintent;
+        if (!c->peer_row_seen.empty()) c->peer_row_seen[peer] = 1;
         es->demand_got++;
       } else {                                   // 提前到货,先寄存
         int si = cid & (PEND_SLOTS - 1);
@@ -1531,9 +1763,11 @@ void on_ctrl_msg(Comm* c, int peer, const CtrlHdr& h, const void* body) {
       }
       break;
     }
-    case CT_POLICY: {
+    case CT_POLICY:
+    case CT_POLICY_SRC: {
       int ne = (h.len - sizeof(CtrlHdr)) / sizeof(PolicyEnt);
       const PolicyEnt* e = (const PolicyEnt*)body;
+      const bool from_src = h.type == CT_POLICY_SRC;
       c->st.chB_msgs++;
       const uint8_t pcid = (uint8_t)(h.aux >> 8);       // 发送方的 coll_id mod 256
       const uint16_t wave = (uint16_t)(h.aux & 0xFF);
@@ -1542,14 +1776,16 @@ void on_ctrl_msg(Comm* c, int peer, const CtrlHdr& h, const void* body) {
       if (!es->coll_started || !cid_match) {
         // 比本 rank 的 coll_begin 还早到,或属于对端更靠后的 collective(O2 hint
         // 下对端可以领先我一个 collective):此时 sendbuf/位移还没就位,不能执行,
-        // 先寄存;coll_begin 时按 cid8 收编
+        // 先寄存;coll_begin 时按 cid8 收编。src 波策略虽不执行,charges 也要
+        // 等本 coll 的账本 epoch(clear_epoch)之后再入账,同槽寄存。
         EarlyPolicy ep;
-        ep.peer = peer; ep.wave = wave; ep.cid8 = pcid;
+        ep.peer = peer; ep.wave = wave; ep.cid8 = pcid; ep.from_src = from_src;
         ep.ents.assign(e, e + ne);
         es->early_policy.push_back(std::move(ep));
         break;
       }
-      apply_policy(c, peer, wave, e, ne);
+      if (from_src) apply_policy_src(c, peer, e, ne);
+      else apply_policy(c, peer, wave, e, ne);
       break;
     }
     case CT_TELEM: {
@@ -2183,6 +2419,17 @@ void dump_state(Comm* c, const char* why) {
           (unsigned long long)c->posted_send, (unsigned long long)c->total_send,
           c->dst.wave_idx, (unsigned long long)c->dst.wave_bytes,
           (unsigned long long)c->dst.wave_delivered, c->pace_hot);
+  if (c->src_mode) {
+    uint64_t rem = 0;
+    int unseen = 0;
+    for (int p = 0; p < c->cfg.nranks; p++) {
+      rem += c->srcc.remaining[p];
+      if (p != c->cfg.rank && !c->peer_row_seen.empty() && !c->peer_row_seen[p]) unseen++;
+    }
+    fprintf(f, "srcmode wave=%d nic=%llu acked=%llu remaining=%llu rows_unseen=%d\n",
+            c->srcc.wave_idx, (unsigned long long)c->srcc.wave_nic_bytes,
+            (unsigned long long)c->srcc.wave_acked, (unsigned long long)rem, unseen);
+  }
   fprintf(f, "q nv=%zu nic=%zu tx=%zu rx=%zu waitrelay=%zu stage_free=%zu relay_free=%zu\n",
           es->ready_nv.size(), es->ready_nic.size(), es->tx.size(), es->rx.size(),
           es->wait_relay.size(), c->stage_free.size(), c->relay_free.size());
@@ -2340,10 +2587,52 @@ static void pump_protocol(Comm* c) {
     MTRACE(TE_CHA_PUB, (uint32_t)m.seq, 0, 0);
   }
 
-  // 波触发:交付过 75% 且还有波额度 → 进错峰槽 → 到点再决策
+  // ── src 相的波触发(任务二):上一波跨机字节的 RC ACK 过阈值 → 错峰槽 →
+  // 到点再决策。全 NV 波(wave_nic_bytes=0)无 ACK 事件,即触发(NV 单跳
+  // 走廊无重规划自由度,多等无益)。迟到行的补发也在此:全部波额度用完后
+  // 才开门的 dst,一次性发它的全部剩余。
+  if (c->src_mode && c->srcc.active && c->cfg.sched == MOSAIC_SCHED_MOSAIC) {
+    SrcCtrl& s = c->srcc;
+    const bool thr_hit = s.wave_nic_bytes == 0 ||
+        (double)s.wave_acked >= wave_thresh() * (double)s.wave_nic_bytes;
+    const bool deadline_hit = s.wave_deadline_ns && t > s.wave_deadline_ns;
+    if (!s.pending_trigger && s.wave_idx < eff_W(c) && (thr_hit || deadline_hit)) {
+      bool more = false;
+      for (int p = 0; p < c->cfg.nranks; p++)
+        if (p != c->cfg.rank && s.remaining[p] &&
+            (c->peer_row_seen.empty() || c->peer_row_seen[p])) { more = true; break; }
+      if (more) {
+        // 决策错峰:与 dst 环同一套槽位(同瞬触发的 n 个 src 互相读到
+        // 更早槽位的通道 B 发布再决策)
+        s.pending_trigger = true;
+        s.trigger_set_ns = t;
+        int slot = c->cfg.rank % std::max(1, c->cfg.stagger_slots);
+        s.trigger_ns = t + (uint64_t)slot * c->cfg.stagger_us * 1000;
+      }
+    }
+    if (s.pending_trigger && t >= s.trigger_ns) {
+      c->st.stagger_us_total += (t - s.trigger_set_ns) / 1000.0;
+      MTRACE(TE_STAGGER, (uint32_t)s.wave_idx, (t - s.trigger_set_ns) / 1000, 0);
+      s.pending_trigger = false;
+      emit_wave_src(c);
+    }
+    // 迟到行补发:波额度已用完、行门后开的 dst 还压着 remaining →
+    // 立即补一波(waves_left=1 ⇒ 全额)。行门未开的 dst 继续等它的行。
+    if (s.wave_idx >= eff_W(c) && !s.pending_trigger) {
+      for (int p = 0; p < c->cfg.nranks; p++)
+        if (p != c->cfg.rank && s.remaining[p] &&
+            (c->peer_row_seen.empty() || c->peer_row_seen[p])) {
+          emit_wave_src(c);
+          break;
+        }
+    }
+  }
+
+  // 波触发(dst 相):交付过阈值且还有波额度 → 进错峰槽 → 到点再决策
   DstCtrl& d = c->dst;
-  if (d.active && c->cfg.sched == MOSAIC_SCHED_MOSAIC) {
-    const bool thr_hit = d.wave_bytes > 0 && d.wave_delivered * 4 >= d.wave_bytes * 3;
+  if (!c->src_mode && d.active && c->cfg.sched == MOSAIC_SCHED_MOSAIC) {
+    const bool thr_hit = d.wave_bytes > 0 &&
+        (double)d.wave_delivered >= wave_thresh() * (double)d.wave_bytes;
     const bool deadline_hit = d.wave_deadline_ns && t > d.wave_deadline_ns;
     // PACE 门:冷 dst 最多领先 hot k-1 波(hot 完成或推进即放行;
     // deadline×2 兜底防饿死 —— 模拟器 release_paced 的 runtime 对应物)
@@ -2465,6 +2754,13 @@ static void event_loop(Comm* c) {
         // (此前到的本 cid 行都还在 pend,fold 在下方,顺序安全)
         if ((int)c->peer_corr_intent.size() != n) c->peer_corr_intent.assign(n, 0);
         std::fill(c->peer_corr_intent.begin(), c->peer_corr_intent.end(), 0);
+        // 行门复位(src 相的发送门;dst 相不读它,复位无副作用)。
+        // 相位判定也在此落定:它只依赖提交参数与旋钮,必须先于承诺位计算
+        // (承诺位在 src 相按出向行取谓词)。
+        if ((int)c->peer_row_seen.size() != n) c->peer_row_seen.assign(n, 0);
+        std::fill(c->peer_row_seen.begin(), c->peer_row_seen.end(), 0);
+        c->src_mode = c->cfg.sched == MOSAIC_SCHED_MOSAIC && c->coll_phase == 1 &&
+                      opt_src_driven() != 0;
         c->my_corr_intent = corridor_intent_bit(c);
         body[sizeof(uint64_t) * n + n] = c->my_corr_intent;
         // hint(O2)命中也照样广播自己的行:混合模式下(某 rank 局部不匹配退回
@@ -2483,6 +2779,7 @@ static void event_loop(Comm* c) {
             if (p == c->cfg.rank || !es->pend_seen[si][p]) continue;
             memcpy(&c->demand[(size_t)p * n], &slot[(size_t)p * n], sizeof(uint64_t) * n);
             c->peer_corr_intent[p] = es->pend_cintent[si][p];
+            c->peer_row_seen[p] = 1;
             es->pend_seen[si][p] = 0;
             es->demand_got++;
           }
@@ -2610,6 +2907,7 @@ void engine_start(Comm* c) {
   c->peer_wave.assign(c->cfg.nranks, 0);
   c->peer_fin.assign(c->cfg.nranks, 0);
   c->peer_corr_intent.assign(c->cfg.nranks, 0);   // 走廊承诺位(demand 块复位/填)
+  c->peer_row_seen.assign(c->cfg.nranks, 0);      // 行门(src 相发送门,demand 块复位/填)
   c->pace_cold.assign(c->cfg.nranks, 0);
   c->peer_det.assign(c->cfg.nranks, 0);
   c->peer_fab.assign((size_t)c->cfg.nranks * 2 * 8, 0);

@@ -156,7 +156,8 @@ bool async_mark_input(Comm* c, void* stream);
 static mosaicResult_t submit_coll(Comm* c,
                                   const void* sendbuf, const size_t scounts[], const size_t sdispls[],
                                   void* recvbuf, const size_t rcounts[], const size_t rdispls[],
-                                  uint64_t caller_stream, int demand_mode, uint64_t row_bytes) {
+                                  uint64_t caller_stream, int demand_mode, uint64_t row_bytes,
+                                  int phase) {
   const int n = c->cfg.nranks;
   MLOG_DBG("submit 进入(下一 coll=%d)", c->coll_id + 1);
   {
@@ -183,6 +184,7 @@ static mosaicResult_t submit_coll(Comm* c,
     // 等我方广播 demand 行(提交之后)才可能到 —— 在提交时挂 wait 时序闭合。
     c->demand_mode = demand_mode;
     c->row_bytes_cur = row_bytes;
+    c->coll_phase = (phase == 1 || phase == 2) ? phase : 0;   // 越界值按"未知"处理
     c->ph_submit_ns = now_ns();
     c->ph_first_post_ns = 0;
     c->input_ev_pending.store(0);
@@ -234,13 +236,14 @@ static mosaicResult_t submit_coll(Comm* c,
 extern "C" mosaicResult_t mosaicAlltoallvEx(mosaicComm_t comm,
                                             const void* sendbuf, const size_t scounts[], const size_t sdispls[],
                                             void* recvbuf, const size_t rcounts[], const size_t rdispls[],
-                                            uint64_t caller_stream, int demand_mode, uint64_t row_bytes) {
+                                            uint64_t caller_stream, int demand_mode, uint64_t row_bytes,
+                                            int phase) {
   Comm* c = (Comm*)comm;
   if (!c) return mosaicErrConfig;
   mosaicResult_t rc = wait_coll(c);   // 一代在飞:先收尾上一笔(流序档在此兑现同步)
   if (rc != mosaicSuccess) return rc;
   rc = submit_coll(c, sendbuf, scounts, sdispls, recvbuf, rcounts, rdispls,
-                   caller_stream, demand_mode, row_bytes);
+                   caller_stream, demand_mode, row_bytes, phase);
   if (rc != mosaicSuccess) return rc;
   if (c->gated) return mosaicSuccess; // 流序完成:门核兜住数据就绪,CPU 即刻返回
   return wait_coll(c);
@@ -249,7 +252,7 @@ extern "C" mosaicResult_t mosaicAlltoallvEx(mosaicComm_t comm,
 extern "C" mosaicResult_t mosaicAlltoallv(mosaicComm_t comm,
                                           const void* sendbuf, const size_t scounts[], const size_t sdispls[],
                                           void* recvbuf, const size_t rcounts[], const size_t rdispls[]) {
-  return mosaicAlltoallvEx(comm, sendbuf, scounts, sdispls, recvbuf, rcounts, rdispls, 0, 0, 0);
+  return mosaicAlltoallvEx(comm, sendbuf, scounts, sdispls, recvbuf, rcounts, rdispls, 0, 0, 0, 0);
 }
 
 extern "C" mosaicResult_t mosaicAllgather(mosaicComm_t comm, const void* sendbuf,
