@@ -107,7 +107,6 @@ extern "C" mosaicResult_t mosaicCommDestroy(mosaicComm_t comm) {
   if (c->coll_state.load() != 0) wait_coll(c);   // 在途必收尾(防御,正常恒空)
   engine_stop(c);
   net_teardown(c);
-  if (c->input_ev) cudaEventDestroy((cudaEvent_t)c->input_ev);
   delete c;
   return mosaicSuccess;
 }
@@ -175,32 +174,12 @@ static mosaicResult_t submit_coll(Comm* c,
     c->st.stagger_us_total = 0; c->st.waves_emitted = 0;
     c->coll_start_ns = 0;
     c->coll_id++;
-    // O1:在调用方流上录"输入就绪"事件并**立刻**让引擎的两条拷贝流 WaitEvent
-    // (app 线程,提交路径内,先于 coll_state=1)。为什么必须在提交时而不是
-    // coll_begin:src 驱动调度器(direct/FAST)的对端数据可以早于我方 coll_begin
-    // 到达(ctrl 走 TCP、数据走 RDMA,两通道无序),那些 H2D 写 recvbuf 的拷贝
-    // 若先于 WaitEvent 入流,就与 torch caching allocator 复用块上还没执行的
-    // kernel 竞争(实测:direct 85 iters 后 loss 尾数漂移)。对端数据最早也要
-    // 等我方广播 demand 行(提交之后)才可能到 —— 在提交时挂 wait 时序闭合。
     c->demand_mode = demand_mode;
     c->row_bytes_cur = row_bytes;
     c->coll_phase = (phase == 1 || phase == 2) ? phase : 0;   // 越界值按"未知"处理
     c->ph_submit_ns = now_ns();
     c->ph_first_post_ns = 0;
-    c->input_ev_pending.store(0);
     c->caller_stream = caller_stream;
-    if (caller_stream && c->cfg.use_gpu) {
-      if (!c->input_ev) {
-        cudaEvent_t e;
-        if (cudaEventCreateWithFlags(&e, cudaEventDisableTiming) != cudaSuccess) e = nullptr;
-        c->input_ev = (void*)e;
-      }
-      if (c->input_ev &&
-          cudaEventRecord((cudaEvent_t)c->input_ev, (cudaStream_t)caller_stream) == cudaSuccess) {
-        cudaStreamWaitEvent((cudaStream_t)c->stream_d2h, (cudaEvent_t)c->input_ev, 0);
-        cudaStreamWaitEvent((cudaStream_t)c->stream_h2d, (cudaEvent_t)c->input_ev, 0);
-      }
-    }
     c->gated = false;
     // dev-pipe2(app 线程 = 门外安全点):recvbuf IPC 句柄导出 + 补 open 缓存 miss
     {
@@ -209,23 +188,41 @@ static mosaicResult_t submit_coll(Comm* c,
         if (p != c->cfg.rank && c->topo.same_host(c->cfg.rank, p)) { has_intra = true; break; }
       devpipe_submit_prep(c, c->cfg.use_gpu && c->zs_cap && has_intra);
     }
-    // ── 完成契约(单一路径,按调用方输入分档):
-    //   caller_stream != 0(torch 等流式调用方)⇒ **流序完成**:门核排在 caller
-    //     流上等 done_flag,本调用提交后即返回;下一次提交先隐式收尾上一笔
-    //     (一代在飞)。窗口内引擎零 CUDA 调用(kdesc 消费者核搬运)。
-    //   caller_stream == 0(bench 等无流调用方)⇒ host 阻塞等收尾。
-    const bool stream_ordered = caller_stream != 0 && c->cfg.use_gpu && c->zs_cap;
-    if (stream_ordered) {
-      // 本 coll 输入门复位:flagset 核在 caller 流上置位后,kdesc_input_ready
-      // 才把它翻回 true —— RWIN 句柄发布与 host 侧读 sendbuf 都以它为界。
-      c->input_ready = false;
-      if (async_mark_input(c, (void*)(uintptr_t)caller_stream) &&
-          zerostream_arm(c)) {
-        c->kdesc_active = true;      // ⇒ 消费者核交付/组装
-        if (gate_arm(c, (void*)(uintptr_t)caller_stream, (uint32_t)c->coll_id))
-          c->gated = true;           // 门已排上 caller 流,Ex 提交后即返回
-        MLOG_DBG("kdesc 挂载(coll=%d gated=%d)", c->coll_id, (int)c->gated);
+    // ── 数据面挂载(单一路径):消费者核是唯一搬运工,阻塞档与流序档同一
+    // 条数据面,只差完成契约:
+    //   caller_stream != 0(torch 等流式调用方)⇒ **流序完成**:输入门 =
+    //     caller 流上的 flagset 核(生产者 kernel 写完 sendbuf 才置位),
+    //     门核排在 caller 流上等 done_flag,本调用提交后即返回(一代在飞)。
+    //     窗口内引擎零 CUDA 调用。
+    //   caller_stream == 0(bench 等无流调用方)⇒ 输入在提交点即就绪
+    //     (阻塞语义,调用方已同步),host 直写输入标志;wait_coll 阻塞收尾。
+    if (c->cfg.use_gpu) {
+      // 调用线程可能不是创建 Comm 的线程(torch autograd 的 backward 跑在
+      // 独立线程,CUDA context 未绑定 ⇒ cuLaunchKernel 报 201)。cudaSetDevice
+      // 绑定本线程的 primary context,每线程只做一次。
+      static thread_local int bound_dev = -1;
+      if (bound_dev != c->cuda_dev) {
+        cudaSetDevice(c->cuda_dev);
+        bound_dev = c->cuda_dev;
       }
+      c->input_ready = false;
+      bool marked;
+      if (caller_stream) {
+        marked = async_mark_input(c, (void*)(uintptr_t)caller_stream);
+      } else {
+        __atomic_store_n((uint64_t*)(c->kdesc_ctr + 160), 1, __ATOMIC_RELEASE);
+        marked = true;
+      }
+      if (!marked || !zerostream_arm(c)) {
+        MLOG_ERR("E5033 消费者核挂载失败(coll=%d)—— 数据面无回退", c->coll_id);
+        c->err = "E5033 消费者核挂载失败";
+        return mosaicErrTransport;
+      }
+      c->kdesc_active = true;        // ⇒ 消费者核交付/组装
+      if (caller_stream &&
+          gate_arm(c, (void*)(uintptr_t)caller_stream, (uint32_t)c->coll_id))
+        c->gated = true;             // 门已排上 caller 流,Ex 提交后即返回
+      MLOG_DBG("kdesc 挂载(coll=%d gated=%d)", c->coll_id, (int)c->gated);
     }
   }
   MLOG_DBG("alltoallv %d 提交(dm=%d)", c->coll_id, demand_mode);

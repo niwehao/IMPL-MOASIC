@@ -2,7 +2,7 @@
  * + TCP(bootstrap 与控制面回退)。
  *
  *  机内 = POSIX 共享内存 SPSC 环承载 [头|序号],payload 在设备内存(IPC 映射)。
- *  跨机数据面在 verbs.cc(RDMA,双侧 host-bounce)。
+ *  跨机数据面在 verbs.cc(RDMA;池位置由 xport profile 选定)。
  *  控制面 = 跨机恒走 verbs SEND(verbs.cc);TCP 承担 bootstrap(QP/uid 交换)、
  *  同机 peer 控制报文、以及 verbs 不可用时的回退。
  *
@@ -22,7 +22,6 @@
 #include <sys/stat.h>
 #include <sys/uio.h>
 #include <unistd.h>
-
 #include <cstdlib>
 
 namespace mosaic {

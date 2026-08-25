@@ -23,7 +23,8 @@ mosaic-rt/
 │   ├── net.cc          Bootstrap, intra-node shared-memory rings, NIC-unit
 │   │                   consensus
 │   ├── verbs.cc        Inter-node RDMA data plane + control plane
-│   │                   (host-bounce; InfiniBand and RoCE, auto-detected)
+│   │                   (InfiniBand and RoCE, auto-detected; staging/RX pool
+│   │                   placement picked by an init-time loopback profile)
 │   ├── erpc_ctrl.cc    Fallback control plane (eRPC/DPDK) for machines
 │   │                   without an RDMA NIC
 │   ├── consumer_kernel.cu  The single GPU copy kernel ("consumer")
@@ -161,6 +162,7 @@ may actually want to touch:
 | `MOSAIC_SLICE_BYTES` | 1 MiB | Slice size (transfer granularity). Larger = less per-slice overhead; smaller = finer pipelining. |
 | `MOSAIC_CREDIT_HOT_W0` | 2 | Initial burst allowance (slices per sender) toward a hot destination before receiver credits take over. Raise for a fuller pipeline at the cost of getting closer to the incast cliff; lower for stronger protection. |
 | `MOSAIC_RDMA_RX_SLOTS` | 32 MB worth | Posted receive window per peer. |
+| `MOSAIC_XPORT` | auto | Placement of the two NIC-facing pools — TX staging and RX slots — as `tx,rx` with each side `pin` (host pinned) or `gdr` (GPU memory via dmabuf). `auto` runs an init-time loopback bandwidth profile (uni- and bidirectional) and picks the best combo, NCCL-init style; all four combos are functional, only speed differs. The copy code is identical in every mode (the consumer kernel is the single data mover); only the pool allocation and MR registration change. |
 | `MOSAIC_KCONS` | 4,4,512 | Consumer-kernel shape (blocks, channels, threads). Calibrated per GPU generation; 4 blocks is the A100 sweet spot. |
 | `MOSAIC_NODE_INFLIGHT_MB` | 24 | Per-destination-node in-flight byte cap on the sender. |
 | `MOSAIC_MEM_BUDGET_MB` | unset | One-knob cap for GPU-side buffer pools when training is tight on memory. |

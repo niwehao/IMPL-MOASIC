@@ -2,8 +2,9 @@
  *
  * 分层:
  *   L0 transport  = 机内 CUDA IPC 环(net.cc)/ 跨机 RDMA verbs(verbs.cc,
- *                   双侧 host-bounce)/ TCP(bootstrap + 控制面回退)
- *   L1 engine     = 事件循环(slice 状态机 + kdesc 消费者核 / CUDA 异步拷贝)
+ *                   staging/槽池位置由 init 时的 xport profiling 选定)/
+ *                   TCP(bootstrap + 控制面回退)
+ *   L1 engine     = 事件循环(slice 状态机 + kdesc 消费者核 = 唯一搬运工)
  *   L2 core       = Topo/Corridor + Ledger + DstCtrl 波引擎(纯 CPU,不碰 CUDA)
  *   L3 api        = mosaic.h
  *
@@ -277,22 +278,6 @@ struct Bucket {
 struct ShmRing;   // net.cc
 struct Conn;      // net.cc:一条 TCP 连接(数据或控制)
 
-// ─────────────────────────────────────────────────────────── L1:slice 状态机
-enum SliceStage : uint8_t { ST_D2H = 0, ST_WIRE, ST_H2D };
-
-struct PendSlice {          // 一个在途的 slice(出向或入向)
-  SliceHdr h;
-  void* stage = nullptr;    // host staging(pinned)或 SHM slot payload
-  void* gpu_src = nullptr;  // D2H 的源(sendbuf 或 relay 池)
-  void* gpu_dst = nullptr;  // H2D 的目的(recvbuf 或 relay 池)
-  int relay_slot = -1;      // 占用的 relay 池槽位,-1 = 未占用
-  int shm_ring = -1;        // 走 SHM 时的环号
-  int stage_slot = -1;      // staging 池槽位
-  void* ev = nullptr;       // cudaEvent_t
-  int peer = -1;            // 本 hop 的对端 rank
-  bool via_nic = false;
-};
-
 // ─────────────────────────────────────────────────────────── L2:每目的地控制环
 struct DstCtrl {
   bool active = false;
@@ -354,20 +339,20 @@ struct Comm {
   void* erpc = nullptr;            // erpc_ctrl.cc 的上下文(控制面兼容档);null = 未启用
 
   // ---- CUDA ----
-  void* stream_d2h = nullptr;
-  void* stream_h2d = nullptr;
-
-  std::vector<void*> ev_pool;
   void* relay_pool = nullptr;      // GPU 上的中转缓冲
   int relay_slots = 0;
   std::vector<int> relay_free;
-  // verbs 数据面 staging(2026-08-19 GDR 重构):payload 在 GPU 池(dmabuf 注册,
-  // RDMA 直读写),64B 头在 host 池(CPU 直写、双 SGE 同一 WR 发出)。
-  uint8_t* stage_hdr_pool = nullptr;   // host pinned,NST × HDR_STRIDE
-  // TX payload staging:host pinned(消费者核 D2H 组装,NIC 从 host MR 读)。
-  // 不用 GPU 池:NIC 对显存的 GDR **读**要过 PCIe host-bridge P2P,Raven 实测
-  // 被钉在 ~121 Gbps(host 读 197 = 满线速);GDR **写**无损,RX 池仍在 GPU。
-  void* stage_pay_pool = nullptr;      // NST × slice_bytes
+  // ── 统一搬运 API 的模式位(xport_profile 在 init 选定,见 verbs.cc 头注)。
+  // 搬运代码唯一 = 消费者核 SM 拷贝(kdesc,UVA 指针对 host pinned 与显存
+  // 一视同仁);四种组合只改**池所在内存**与 verbs MR 的注册方式:
+  //   tx_gdr:TX staging 池在显存(NIC 经 dmabuf MR 直读)/ host pinned;
+  //   rx_gdr:RX 槽池在显存(NIC GDR 直写,交付 D2D)/ host pinned(交付 UVA 读)。
+  // 两位都是**本 rank 局部**选择(NIC 只碰本地内存,对端不感知),线格式不变。
+  bool tx_gdr = false, rx_gdr = false;
+  // 64B 头池恒在 host(CPU 组头/读头,双 SGE 同一 WR 发出)
+  uint8_t* stage_hdr_pool = nullptr;   // NST × HDR_STRIDE
+  void* stage_pay_pool = nullptr;      // TX payload staging,NST × slice_bytes(位置见 tx_gdr)
+  void* stage_pay_raw = nullptr;       // tx_gdr 时对齐分配的原始指针(释放用)
   int stage_slots = 0;
   std::vector<int> stage_free;
 
@@ -468,10 +453,6 @@ struct Comm {
   bool tier_blind = false;   // S2v2:本 collective 决策盲档(非热点小报文)
 
   // ---- 2026-08-15 优化批(O0-O5,全部 env 可关;见 File/log_raven.md §6)----
-  // O1 异步提交:app 线程在调用方流上录"输入就绪"事件,event 线程让内部拷贝流
-  // WaitEvent 它 —— CPU 协议与调用方流上的尾部计算重叠,GPU 依赖交给 device 侧。
-  void* input_ev = nullptr;              // 持久 cudaEvent(app 线程懒创建)
-  std::atomic<int> input_ev_pending{0};  // 1 = 本次提交带事件,coll_begin 消费
   // O2 demand hint:本次提交的模式(0/1/2)与行字节;上次 collective 的全局矩阵
   int demand_mode = 0;
   uint64_t row_bytes_cur = 0, row_bytes_prev = 0;
@@ -551,7 +532,7 @@ struct Comm {
   uint64_t kdesc_gen = 0;           // 代际号(每 coll +1;核见变即退,坑 #36)
   bool kdesc_active = false;        // 本次 collective 走消费者内核交付
   void* kflag_fn = nullptr;         // mosaic_flagset CUfunction(input 就绪标志)
-  bool input_ready = false;         // 本 coll input_ev 已确认(host-API hop0 门)
+  bool input_ready = false;         // 本 coll 输入就绪标志已确认(hop0 发射门)
   uint64_t caller_stream = 0;       // 本 coll 的调用方流(诊断:查它是否卡住)
   // 跨机控制面的档位。两者**互斥**,engine_start 的能力探测二选一置位:
   //   ctrl_verbs —— RDMA 档,**默认且首选**:独立 ctrl QP 走 RDMA SEND;
@@ -569,12 +550,6 @@ struct Comm {
   std::atomic<int> coll_state{0};   // 0=idle 1=running 2=done
   uint64_t coll_start_ns = 0, coll_end_ns = 0;
   int coll_id = 0;
-
-  // ---- 队列 ----
-  std::deque<PendSlice> q_ready;    // 已装配、等待发射
-  std::deque<PendSlice> q_d2h;      // 在途 D2H(按 stream 顺序)
-  std::deque<PendSlice> q_h2d;      // 在途 H2D
-  std::deque<PendSlice> q_relay;    // 等待续跳(已落 relay 池)
 
   // ---- 线程 ----
   // cudaSetDevice 是**每线程**属性:engine_start 在 app 线程选的卡,event
@@ -665,6 +640,13 @@ bool verbs_nic_ident(Comm* c, uint64_t* key, double* gbps);
 int  ctrl_send_tcp(Comm* c, int peer, const void* framed, uint32_t n);
 
 // verbs.cc(RDMA 数据面 + 控制面;data_plane=false 仅供无数据面调试形态)
+// xport_profile:统一搬运 API 的模式选择(engine_start 在池分配前调,仅
+// use_gpu 且有跨机 peer 的形态)。loopback QP 双向带宽实测四种池组合,
+// 填 c->tx_gdr / c->rx_gdr;MOSAIC_XPORT 显式覆盖。
+void xport_profile(Comm* c);
+// 64KB 对齐显存分配(dmabuf 导出范围必须页对齐,cudaMalloc 小块只有 1KB 对齐)。
+// 返回对齐指针,*raw = cudaFree 用的原始指针;失败返回 null。
+void* mosaic_gpu_alloc_aligned(size_t bytes, void** raw);
 int  verbs_setup(Comm* c, bool data_plane);
 int  rdma_rx_slots(int slice_bytes);   // 每 pair 预投 recv 槽数(verbs.cc;W 流控规则用)
 void verbs_teardown(Comm* c);
@@ -705,12 +687,11 @@ void engine_stop(Comm* c);
 void engine_submit(Comm* c);           // app 线程提交一次 collective
 
 void on_ctrl_msg(Comm* c, int peer, const CtrlHdr& h, const void* body);
-// 一个 slice 的当前 hop 已经落到本 rank 的 host 内存里。
-// shm_ring_idx >= 0 → payload 在该 SHM 环的槽里(消费完要 pop);
-// stage_slot   >= 0 → payload 在 TCP staging 池的槽里(消费完要 release);
-// verbs_token >= 0 → payload 在 RDMA 预投槽里(H2D 完成后 verbs_repost 归还)。
-void on_slice_arrived(Comm* c, const SliceHdr& h, void* host_payload,
-                      int shm_ring_idx, int stage_slot, int verbs_token = -1);
+// 一个 slice 的当前 hop 已经到达本 rank(payload 指向源槽,消费者核可直读)。
+// shm_ring_idx >= 0 → payload 在该 IPC 环的槽里(交付完成后 pop);
+// verbs_token >= 0 → payload 在 RDMA 预投槽里(交付完成后 verbs_repost 归还)。
+void on_slice_arrived(Comm* c, const SliceHdr& h, void* payload,
+                      int shm_ring_idx, int verbs_token = -1);
 
 }  // namespace mosaic
 #endif
