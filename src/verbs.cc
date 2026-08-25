@@ -105,6 +105,7 @@ struct VerbsCtx {
   ibv_qp* qp_flush = nullptr;           // 自连 RC QP(仅 rx_gdr 时建)
   std::deque<GdrPend> gdr_pend;
   size_t flush_cover = 0;               // 在途 flush 覆盖 gdr_pend 前多少条
+  uint64_t flush_post_ns = 0;           // 在途 flush 的投递时刻(活性兜底判据)
   uint8_t* flush_buf = nullptr;         // 8B host 落点
   ibv_mr* mr_flush = nullptr;
 };
@@ -842,6 +843,7 @@ static void post_flush(Comm* c) {
   wr.wr.rdma.rkey = v->mr_rx_pay->rkey;
   if (v->qp_flush && ibv_post_send(v->qp_flush, &wr, &bad) == 0) {
     v->flush_cover = v->gdr_pend.size();
+    v->flush_post_ns = now_ns();
     return;
   }
   MLOG_ERR("E1037 flush READ 投递失败,该批直接交付(顺序保障降级)");
@@ -979,7 +981,25 @@ int verbs_poll(Comm* c) {
     }
     done++;
   }
-  if (c->rx_gdr) post_flush(c);
+  if (c->rx_gdr) {
+    // 活性兜底:GPU BAR 排水停滞的平台(Raven 实测 pin,gdr 挂死)会把 flush
+    // READ 一起卡死 —— 超过 500ms 未完成就告警并交付该批(此时 payload 大概率
+    // 早已落定,只是"确认"被卡;正确性仍由端到端 bit-exact 校验兜底)。
+    // 该路径反复触发 = 平台不适合 rx_gdr,profile 的双向腿本就会把它排到最后。
+    if (v->flush_cover && now_ns() - v->flush_post_ns > 500000000ull) {
+      MLOG_WARN("E1039 flush READ %zu 条超时 500ms,越过确认直接交付(平台排水停滞)",
+                v->flush_cover);
+      size_t nfl = v->flush_cover;
+      v->flush_cover = 0;               // 在途 READ 的迟到完成会被 WRID_FLUSH 分支吸收(cover=0 交付 0 条)
+      while (nfl-- && !v->gdr_pend.empty()) {
+        VerbsCtx::GdrPend p = v->gdr_pend.front();
+        v->gdr_pend.pop_front();
+        on_slice_arrived(c, p.h, p.gpay, -1, p.token);
+        done++;
+      }
+    }
+    post_flush(c);
+  }
   return done;
 }
 
