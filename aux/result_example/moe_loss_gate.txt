@@ -1,0 +1,2 @@
+nccl   loss_md5 d31111ebd724b7bdac0f5c1c6ca0a21d (60 iters, iter59 loss 9.043229)
+mosaic loss_md5 d31111ebd724b7bdac0f5c1c6ca0a21d (60 iters, iter59 loss 9.043229)

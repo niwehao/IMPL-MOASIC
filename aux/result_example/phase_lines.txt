@@ -1,0 +1,4 @@
+[mosaic r0    52.276ms WARN] PHASE coll=4 notice_us=26.1 bcast_us=52.8 demand_us=53.1 first_post_us=130.8 total_us=8958.8 waves=3 plan_us=1.8 dm=0 ssp=1 evmax=1:38.8
+[mosaic r0    68.370ms WARN] PHASE coll=5 notice_us=14.8 bcast_us=41.9 demand_us=42.3 first_post_us=89.6 total_us=13295.7 waves=3 plan_us=1.2 dm=0 ssp=1 evmax=7:36.7
+[mosaic r0    79.879ms WARN] PHASE coll=6 notice_us=36.2 bcast_us=62.0 demand_us=62.2 first_post_us=109.4 total_us=11123.6 waves=2 plan_us=0.9 dm=0 ssp=1 evmax=7:47.1
+[mosaic r0    93.493ms WARN] PHASE coll=7 notice_us=13.3 bcast_us=35.2 demand_us=35.3 first_post_us=106.7 total_us=11063.8 waves=3 plan_us=1.0 dm=0 ssp=1 evmax=1:32.3

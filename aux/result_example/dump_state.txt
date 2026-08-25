@@ -1,0 +1,16 @@
+why=SIGTERM t=1639754665178231 rank=29/32 sched=0 coll=4 state=1 evphase=7
+recv 7424000/7837696 send 8151040/8151040 wave=2 wb=3918848 wd=3712000 paced_hot=-1
+q nv=0 nic=0 tx=0 rx=0 waitrelay=0 stage_free=128 relay_free=1024 tcpq=0
+src 0 recv 192512 want 192512 remaining 0 peer_wave 2 fin 0 det 0
+src 1 recv 276480 want 276480 remaining 0 peer_wave 2 fin 0 det 0
+src 2 recv 333824 want 333824 remaining 0 peer_wave 2 fin 0 det 0
+src 3 recv 235520 want 235520 remaining 0 peer_wave 2 fin 0 det 0
+src 4 recv 249856 want 249856 remaining 0 peer_wave 2 fin 0 det 0
+src 5 recv 454656 want 454656 remaining 0 peer_wave 2 fin 0 det 0
+src 6 recv 0 want 208896 remaining 0 peer_wave 2 fin 0 det 0
+src 7 recv 212992 want 212992 remaining 0 peer_wave 2 fin 0 det 0
+src 8 recv 354304 want 354304 remaining 0 peer_wave 2 fin 0 det 0
+src 9 recv 372736 want 372736 remaining 0 peer_wave 2 fin 0 det 0
+src 10 recv 282624 want 282624 remaining 0 peer_wave 2 fin 0 det 0
+src 11 recv 155648 want 155648 remaining 0 peer_wave 2 fin 0 det 0
+src 12 recv 272384 want 272384 remaining 0 peer_wave 2 fin 0 det 0

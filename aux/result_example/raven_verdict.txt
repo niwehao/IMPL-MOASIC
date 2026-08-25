@@ -1,0 +1,4 @@
+  形态核验 OK:4 节点 × 4 GPU = 16 rank,全部 gpu 档
+== moe nccl: ok 末迭代 loss=9.027629852294922
+== moe mosaic: ok 末迭代 loss=9.027629852294922
+VERDICT: PASS moe [nccl mosaic] [r0] iter 59 loss 9.027630

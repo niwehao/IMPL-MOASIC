@@ -1,0 +1,1 @@
+[mosaic r0   592.693ms INFO] xport profile(每方向 Gbps,uni/bi):pin,pin=19/14 gdr,pin=19/14 pin,gdr=19/14 gdr,gdr=21/22 → TX=gdr RX=gdr

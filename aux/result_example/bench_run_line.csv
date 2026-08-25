@@ -1,0 +1,2 @@
+tag,sched,n,G,mode,alpha,seed,msg,nv_gbps,nic_gbps,C,W,med_us,min_us,p99_us,bytes_sent,bytes_relay,plan_us_avg,plan_us_max,waves,chA_msgs,chB_msgs,chB_bytes,c_direct,c_rx,c_tx,c_sp0,c_sp1,c_sp2,in_direct,in_rx,in_tx,in_sp0,in_sp1,in_sp2,sched_plan_us,chA_bytes
+run,mosaic,8,4,hotdst,1.0,42,1048576,8.00,2.00,6,6,21065.1,17439.0,21065.1,7340032,0,0.48,0.62,6,2945,80,4704,7340032,0,0,0,0,0,7340032,0,0,0,0,0,0.0,100028
