@@ -1,1 +1,4 @@
+# 本机 L40(100GbE RoCE,4 rank 共享 HCA)→ 自动选 gdr,gdr:
 [mosaic r0   592.693ms INFO] xport profile(每方向 Gbps,uni/bi):pin,pin=19/14 gdr,pin=19/14 pin,gdr=19/14 gdr,gdr=21/22 → TX=gdr RX=gdr
+# Raven(HDR200,4 rank 共享 HCA)同一份代码 → 自动选 pin,pin(GDR 读根桥钳制/写排水劣化被两条腿识别):
+[mosaic r0  1542.121ms INFO] xport profile(每方向 Gbps,uni/bi):pin,pin=49/20 gdr,pin=28/14 pin,gdr=25/15 gdr,gdr=21/12 → TX=pin RX=pin
