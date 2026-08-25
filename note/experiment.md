@@ -1,8 +1,9 @@
-# 当前方案的实验设置与结果(2026-08-21)
+# 当前方案的实验设置与结果(2026-08-25)
 
 > 本文只描述**当前交付版本**(接收端信用反压 + W 在线自适应 +
-> recv-即-开门,commit f9ffeef 及之后)的设置与数字。历史版本与废案
-> 见 note/timeline.md。所有数字带实验编号,原始数据在 `Result/<编号>/`。
+> recv-即-开门 + src 驱动 dispatch + 统一搬运 API,commit 8d6187a)的
+> 设置与数字。历史版本与废案见 note/timeline.md。所有数字带实验编号,
+> 原始数据在 `Result/<编号>/`。
 
 ## 1. 实验平台
 
@@ -75,6 +76,11 @@
   17.80 vs 18.08 反超,两次合并结论 = **打平**)。
 - 端到端校验全过、16/16 rank 在场、零 E1025(传输重试耗尽)。
   信用反压之前,α=2 这一格是 **280.6 ms(落后 4.4×)**(29433075)。
+- **2026-08-25 复核(统一搬运 API 落地后,占位 29614235 方向判断)**:
+  120 iter 同尺复测 α1 24.0 / α2 11.0、uniform 8M 17.86(打平)、MoE 60it
+  +11.2% loss md5 一致 —— 与本表逐字同带,本表继续有效。注意口径坑:
+  **skew 格用 20 iter 短跑会把 med 落进 W-arm 探索期**(α2 会虚高到 ~79ms),
+  方向判断也要 ≥120 iter 或钉 `MOSAIC_WAVES=1`(log_raven.md 08-25 结论 3)。
 
 ### 3.2 MoE 端到端(进表 **29455196** PASS,独占 sbatch,60 iter)
 
@@ -116,10 +122,15 @@ nsys 双腿对照(profiling 档,rank0,12 iter;扰动 ~5%,只做归因):
    冷 rank 完成结构优势的来源。
 4. **NIC 物理单元记账**:运行时探测"哪些 rank 共享同一块物理网卡",
    账记在单元上 —— 共享 HDR200 不再被当成 4 根独立管子。
-5. **数据面**:机内 CUDA IPC 直写(1-copy);跨机 verbs RC SEND
-   双侧 host-bounce(GDR 读 121Gbps 根桥墙、GDR 写双稳态的规避,
-   见 File/platform-limits-0821.md);GPU 侧仅一个消费者内核
-   (4 block)+ 门内核,每 coll 起停不常驻。
+5. **数据面(统一搬运 API,2026-08-25)**:搬运代码只有一份 ——
+   消费者内核(SM 拷贝,4 block)是唯一搬运工,阻塞档(bench)与流序档
+   (torch)同一条路;机内 CUDA IPC 直写(1-copy);跨机 verbs RC SEND,
+   TX staging 池与 RX 槽池的**位置**(host pinned / 显存 dmabuf)由 init
+   时 loopback QP 单向+双向带宽 profiling 每 rank 自动选定(NCCL init
+   同款思路,`MOSAIC_XPORT` 可钉死)。Raven 全员自动落 pin,pin
+   (GDR 读 121Gbps 根桥墙、GDR 写排水劣化都被探针识别,
+   见 File/platform-limits-0821.md);本机 L40 自动落 gdr,gdr。
+   门内核 + 消费者内核每 coll 起停不常驻。
 
 ## 5. 复现
 

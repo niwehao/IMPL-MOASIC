@@ -489,12 +489,59 @@ Doc/uccl_transport_notes.md)。它的 §4.2 正是我们的病:MoE 的 incast
   波引擎 + W 在线自适应 + PACE/错峰 + 承诺位完成门。决策序列与模拟器
   金标 0 分歧。
 - **L1 引擎**:单事件线程,门未决窗口内零 CUDA 调用(G.1)。
-- **L0 传输**:机内 = CUDA IPC 直写(1-copy);跨机 = verbs RC SEND
-  双侧 host-bounce + **接收端信用反压**(credit 由交付铸造 +
-  demand 感知的热列 W0 突发钳);控制面 = verbs SEND(~5µs)。
+- **L0 传输**:机内 = CUDA IPC 直写(1-copy);跨机 = verbs RC SEND +
+  **接收端信用反压**(credit 由交付铸造 + demand 感知的热列 W0 突发钳);
+  staging/RX 池位置由 init 时的 xport profiling 选定(见第 12 章);
+  控制面 = verbs SEND(~5µs)。
 - **GPU 侧**:消费者内核(唯一搬运工,4 block)+ 门内核(recvbuf
   就绪即开门)—— 每次通信起停,绝不常驻。
 
 当前成绩、实验设置与口径,见 **note/experiment.md**。
 平台物理限制清单(哪些事是平台不让做,换平台可重估)见
 **File/platform-limits-0821.md**。
+
+---
+
+<a name="ch12"></a>
+## 12. 统一搬运 API:一份代码,两个集群自己选路(2026-08-25)
+
+**出发点(用户指令)**:本机(L40S + 100GbE RoCE)与 Raven(A100 +
+HDR200)不该各写一套搬运分支 —— 搬运 API 必须唯一,平台差异只能落在
+「池在哪块内存」,由 init 时 profiling 自动挑,像 NCCL 的 init 选路。
+顺带清掉一个不一致:a2a(bench 阻塞档)一直走 CE(cudaMemcpyAsync),
+和 MoE(消费者内核)不是同一条数据面 —— 统一成 SM 后,纯 A2A 与 MoE
+在数据平面上等价,前者只是不叠计算。
+
+**做法**:
+- 拷贝一律消费者内核。UVA 指针对 host pinned 和显存一视同仁,所以
+  (TX,RX)∈{pin,gdr}² 四种组合**共享同一份拷贝代码**,只差池的分配
+  (`cudaHostAlloc` / 64KB 对齐 `cudaMalloc`)和 MR 注册
+  (`ibv_reg_mr` / `ibv_reg_dmabuf_mr`)。两个选择都是 rank 局部的
+  (NIC 只碰本地内存),线格式不变,异构混选安全。
+- init 时 loopback RC QP 对(同 HCA 互连)每组合各测一次**单向**与
+  **双向**带宽,取 min 打分:单向上限 = 线速,能分辨「GDR 读被 PCIe
+  根桥钳在 121Gbps」这类单路径墙;双向暴露「GDR 写 + 双向持续流」的
+  排水劣化。±5% 内偏向 GDR 位少的保守档;`MOSAIC_XPORT` 平台配置覆盖。
+- RX 在显存时,CQE 不保证 payload 已落定(PCIe posted write 与 CQE
+  到不同终点)—— 交付前经自连 flush QP 发 8B RDMA READ(NCCL gdrFlush
+  同款),READ 超时 500ms 有活性兜底(E1039)。
+
+**路上摔的跤**(全部入 log.md 坑 #63-#65):dmabuf 导出要页对齐而
+cudaMalloc 小块只有 1KB 对齐(单测全过、进程里必挂,因为分配器水位不同);
+torch autograd 线程没有 CUDA context,cuLaunchKernel 报 201 —— 旧代码
+静默回退 CE 一直把这个平台坑藏着,删回退的当天才露出来;带宽探针
+INFLIGHT ≥ 预投槽数时 RNR 退避把四组合钳成同一个假值("所有变体一个数"
+多半是共同的人为瓶颈,不是没差别)。
+
+**结果**:两个集群同一份代码,自动分道 ——
+- 本机:多数 rank 选 **gdr,gdr**(4 rank 挤一块 HCA,pin 组合在 host RAM/
+  根桥上自相残杀,双向腿低 ~25%);hotdst α2 对旧 CE host-bounce **−28.5%**。
+- Raven:全 16 rank 选 **pin,pin**(单向腿:pin 47-51 vs gdr 读 28-31 /
+  gdr 写 7-25 Gbps);四组合钉死矩阵 18.3 / 31.7(GDR 读墙逐字复现 8-21
+  的负结果)/ 115(gdr RX 档,概率性挂死已由 E1039 兜底成"能跑但慢")。
+- **零回归**:Raven 120it α1 24.0 / α2 11.0、uniform 8M 打平、MoE 60it
+  +11.2% 且 loss md5 逐位一致 —— 全部与 8-21 进表同带。
+- 两个教训进方法论:①skew 格 20 iter 短跑的 med 会落进 W-arm 探索期,
+  首轮看到的"α2 慢 7 倍"全是测量伪影(旧树对照才排除了传输嫌疑);
+  ②任务 1 的策略全员广播(GBCAST)在 16 rank 小 coll 上要价 +90%
+  (256K:1586 vs 837µs)—— 默认值待决策层按 coll 尺寸重估。
